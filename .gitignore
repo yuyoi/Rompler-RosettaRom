@@ -9,3 +9,7 @@ selftest_out/
 rosetta_config.json
 __pycache__/
 *.rosetta
+dist/
+build_tmp/
+*.spec
+!*.exe.keep

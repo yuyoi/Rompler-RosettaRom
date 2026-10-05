@@ -6,14 +6,13 @@ import os, sys, glob, wave, io, json, re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import numpy as np
-from rosetta_d110 import rom_to_log, log_to_rom, log_to_lin, lin_to_log
-from swap_ic8 import read_wav
+from rosetta_d110 import rom_to_log, log_to_rom, log_to_lin, lin_to_log, read_wav
 try:
     import winsound
 except ImportError:
     winsound = None
 
-HERE = os.path.dirname(os.path.abspath(__file__)); os.chdir(HERE)
+HERE = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)); os.chdir(HERE)
 APP = 'Rosetta ROM Studio'; EXT = '.rosetta'; CFG = os.path.join(HERE, 'rosetta_config.json')
 FULL = 2.0 ** (32766 / 2048); RATE = 32000; NW = 128
 PANEL, PANEL_HI, RECESS, EDGE = '#1d2228', '#2a3038', '#12161a', '#0a0c0e'
@@ -124,7 +123,7 @@ class Rom:
         c = load_cfg()
         ic8 = ic8 or c.get('ic8') or 'dumps/r15179880.ic8.bin'
         ic7 = ic7 or c.get('ic7') or 'dumps/r15179878.ic7.bin'
-        ic12 = ic12 or c.get('ic12') or glob.glob('ctrl/Roland D110 (v1.06*/r15179873*.bin')[0]
+        ic12 = ic12 or c.get('ic12') or (glob.glob('ctrl/**/r15179873*.bin', recursive=True) or ['ctrl/r15179873.ic12.bin'])[0]
         s.paths = {'ic8': ic8, 'ic7': ic7, 'ic12': ic12}
         s.ic8 = np.fromfile(ic8, np.uint8); s.ic7 = np.fromfile(ic7, np.uint8); s.ctrl = np.fromfile(ic12, np.uint8)
         if len(s.ic8) != 524288 or len(s.ic7) != 524288 or len(s.ctrl) != 131072:
@@ -228,9 +227,26 @@ class Studio(tk.Tk):
     def __init__(s):
         super().__init__(); s.geometry('1180x720'); s.minsize(980, 620); s.title(APP)
         apply_theme(s); dark_titlebar(s)
-        s.rom = Rom(); s.swaps = {}; s.src = {}; s.renames = {}; s.path = None
+        s.rom = s.first_rom(); s.swaps = {}; s.src = {}; s.renames = {}; s.path = None
         s.norm = tk.BooleanVar(value=True); s.filt = tk.StringVar(value='All')
         s.menu(); s.ui(); s.fill(); s.sel_first()
+
+    def first_rom(s):
+        try:
+            return Rom()
+        except Exception:
+            messagebox.showinfo(APP, 'No ROM dumps found next to the program.\n\nPick your own dumps: IC8 (drums, 512 KB), IC7 (instruments, 512 KB), IC12 (control, 128 KB).')
+            d = {}
+            for key, title in (('ic8', 'IC8 drum ROM (512 KB, r15179880)'), ('ic7', 'IC7 instrument ROM (512 KB, r15179878)'), ('ic12', 'IC12 control ROM (128 KB, r15179873)')):
+                fn = filedialog.askopenfilename(title='Select ' + title, filetypes=[('ROM dump', '*.bin;*.rom'), ('All', '*.*')])
+                if not fn:
+                    s.destroy(); sys.exit()
+                d[key] = fn
+            try:
+                r = Rom(**d)
+            except Exception as e:
+                messagebox.showerror(APP, str(e)); s.destroy(); sys.exit()
+            json.dump(d, open(CFG, 'w'), indent=1); return r
 
     def menu(s):
         mb = tk.Menu(s); f = tk.Menu(mb, tearoff=0)

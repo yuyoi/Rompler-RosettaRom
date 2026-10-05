@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" width="360" alt="Rosetta ROM"></p>
+
 # Rosetta ROM
 
 > **UNTESTED PROTOTYPE.** The software round-trips in simulation, but **nothing has been burned or run in a synth yet.**
@@ -64,3 +66,5 @@ plus `report.txt`. Images are in chip byte order, as dumped. Renaming needs IC12
 - Roland, D-110, MT-32 and LA synthesis are trademarks of their owners. This project is not affiliated with Roland.
   No ROM data or decoded audio is distributed here.
 - MIT licensed (see `LICENSE`).
+
+logo: runic ring spells ROSETTA (Elder Futhark) round a cross pattee; the purple rosette is the "little rose" of the name, and the Rosetta Stone, the key between scripts. `python make_logo.py` regenerates `assets/`.
