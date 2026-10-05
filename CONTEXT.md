@@ -1,0 +1,58 @@
+# Rosetta ROM - context (grabbed 2026-10-05 from "u110-romhex studio and hexwizardv1")
+
+Goal: ESP32 + RAM/flash stand-in for a rompler's mask-ROM PCM wave chip(s), so any rompler can play user samples (a sampler).
+Generalises U110 HexWizard (one card format) -> per-machine "stones": address/data scramble + table format per synth.
+
+## What already exists (reuse, don't rebuild)
+- Desktop/U110_Card_Studio  : Studio app (src/u110build.py, u110card.py, u110wave.py, roland*.py, akai*.py). WAV -> card image, DPCM encode, loop/zone tables.
+- Desktop/u110_card/FORMAT.md : solved U-110 card format (addr/data bit permutations raw<->proper, sample entry 10 B, tone list 0x50 B, 256 KB bank boundary).
+- Desktop/esp32-maskrom-programmer : working ESP32-S3 -> SST39SF040 burner (GPIO direct, WiFi web UI, OLED). Verified 0 bad bytes / 512 KB. Write-only.
+- Desktop/hexwizard_mk2 : KiCad cards. mk2_min routed (direct GPIO), mk2_fancy placed (74LVC595 addr + 74LVC245 data, slot-5V sense). Untested on hw.
+- Desktop/U110_TODO.md : "U110 Hexacordia" = live ROM EMULATION (fast 5V SRAM <=55ns, ESP writes between synth reads, bit-mask/XOR data, address scramble as performance control). THIS is the seed of Rosetta ROM. Also Clock Tower, Korg M1/M3R card idea, Pro-E/D-50 wave swap idea.
+
+## Hard-won facts
+- Card slot: 34 pin, A0-A18, D0-D7, CS active HIGH, /OE active low, 5 V logic. ESP32 = 3.3 V (SST VIH only 2.0 V so ESP->chip OK; chip/synth->ESP 5 V NOT OK without 74LVC245 / FET switches).
+- Flash can't serve reads while programming (status bits) -> live editing needs SRAM or dual-port; bus contention = THE design problem.
+- Mask ROM swap (vs card) = chip is soldered in the synth: needs a socket/plug-in adapter in the DIP/SOP footprint, tri-state outputs, access time budget of the original (typ 150-250 ns mask ROMs; SRAM 55 ns is fine).
+- ESP32-S3 GPIO count is tight (A0-A18 + D0-D7 + ctrl = ~30). Fancy card trick: shift registers for address OUT, but a ROM EMULATOR must READ the address bus fast -> shift regs don't work; needs 74LVC245 inputs, or CPLD/RP2040 PIO front, or ESP32 I2S/LCD-cam parallel capture.
+- PCM data is often DPCM/scrambled/bank-split (U-110: 8-bit DPCM, bits permuted). Rompler tone/ROM tables must be reverse engineered per machine.
+
+## Open design questions
+1. Replace the wave ROM only (data swap, tables stay) vs also intercept the tone table region (new samples need new table entries).
+2. Architecture: (A) SRAM + ESP loads it, synth reads SRAM directly (simple, static); (B) ESP/CPLD/PIO answers reads live (flexible, hard timing); (C) SRAM dual-port-ish with bus switches.
+3. First target machine (U-110 is the only one fully solved; others: D-50/D-10, Korg M1/M3R PCM cards, JV/XP wave ROMs, Akai ... ).
+4. Form factor: card (slot machines) vs DIP/SOP/QFP clip-in for soldered mask ROMs.
+
+## Decisions (user, 2026-10-05)
+- First target: Roland D-110 (not U-110). Needs: D-110 wave ROM chip pinout/size, dump (MAME has D-110/MT-32-family ROMs), PCM format. D-110 = LA synthesis + PCM ROM, so check which ROM(s) hold the PCM.
+- Architecture: SST39SF040 (or similar) programmed by ESP32 at 3.3 V, using the user's existing working universal design (esp32-maskrom-programmer). NOT live emulation.
+- Status: context only, no design doc yet.
+
+## D-110 PCM DECODED (2026-10-05)
+- IC7 (r15179878) and IC8 (r15179880): each an independent 512 KB MT-32-style PCM ROM. 16-bit log samples = 2 consecutive bytes (s,c), bit order {0,9,1,2,3,4,5,6,7,10,11,12,13,14,15,8} (munt Synth.cpp). No address scramble.
+- Linear magnitude = 2^((v&0x7fff)/2048) (bigger = louder), sign = bit 15. Wrong way round gave glitchy audio.
+- User HEARD it clear on the fixed render. Script: probe_pcm.py. Sample table lives in control ROM (pos*0x800, len 0x800<<exp, loop flag).
+- Credit: user's own ear-first intuition that the first (glitchy) render sounded like it was playing "super fast" pointed straight at a decode/playback issue. Their call, recorded at their request.
+
+## Control ROM table found (2026-10-05)
+- Control ROM files unpacked to ctrl/. IC12 r15179873 (128 KB) holds the PCM table; IC19 (32 KB) = OS, IC6 (32 KB) unknown.
+- Table in IC12 starts at 0x900: 4-byte entries {pos, len, pitchLo, pitchHi}, munt ControlROMPCMStruct format. addr = pos*0x800 SAMPLES (=pos*0x1000 bytes), length = 0x800<<((len>>4)&7), loop = len&0x80. First block = 128 entries (0x900-0xAFF), more blocks follow (0xB00.. variants with len low nibble 1, 0xC.. etc: not decoded).
+- WAVE SPACE = 1 MB: IC8 first (bytes 0x00000-0x7FFFF), then IC7 (0x80000-0xFFFFF). Proof: single-cycle loop entries (0xA24+, pos 0xDB-0xFF) are smooth only in this order (seam jump 0.03 vs 0.26 swapped).
+- Scripts: table_test.py, split_table.py -> samples/ (128 wavs) + audition_first128.wav.
+
+- User: IC8 (r15179880) is DRUMS ONLY. Consistent with the order found (IC8 = wave pos 0x00-0x7F, IC7 = pos 0x80-0xFF incl. the looped waves at 0xDB-0xFF). So replacing IC8 alone = custom drum kit, needs only the 128-ish table entries pointing at pos 0-0x7F.
+
+## Encoder + slot swap WORK in software (2026-10-05)
+- rosetta_d110.py: ROM<->log<->linear codec, bit-exact round trip on both dumps. Full scale = m 32766 (mag 2^(m/2048)).
+- swap_ic8.py <slot#> <in.wav> [out.bin]: replaces one drum slot in IC8, same position/length, no table edit. test_swap.py: decoded vs input correlation 1.0000.
+- NOT yet: hardware test; slot names/key map; pitch field meaning (so rate/tuning of a swap is unverified); table blocks 0xB00+.
+
+## Names + both chips (2026-10-05)
+- Wave names: IC12 0x100 + 8*index, 8 ASCII chars, same index as the 0x900 table (validated: Rimshot/Bongo short, Crash/Ride/Timpani long, *Lp entries flagged loop). Idx 0-31 drums (IC8), 32+ = IC7 (AcPianoH, Trumpet, ...). First 128 table entries only; 128+ (0xB00 block) not understood.
+- Timbre names are 10 chars at the start of each timbre record in IC12 (from 0x1200, e.g. ClsdHiHat1); not touched yet.
+- rosetta_swap.py <index> <wav> [name]: patches IC8 or IC7 (by position) and IC12 name -> patched/. Tested both chips: decode corr 1.0000.
+- UNVERIFIED: pitch field/tuning, hardware (IC7/IC8/IC12 package + pinout vs SST39SF040/SST39SF010; IC12 is a LH5310 128 KB mask ROM so IC12 also needs replacing for name edits).
+
+## Rosetta ROM Studio v0.1 (2026-10-05)
+- rosetta_studio.pyw (run: py -3.10 rosetta_studio.pyw). U110-Studio look (theme/LCD/LED meter copied). Wave list (128, filter IC8/IC7/Changed), waveform original vs replacement, load WAV, rename (8 chars), normalize, play. File: save/open project (.rosetta json), import ROM dumps (remembered in rosetta_config.json), import WAV folder (003_x.wav or by name), export all original waves, BUILD -> patched IC8/IC7/IC12 + report.txt.
+- --selftest builds headless. Launches OK; GUI not yet clicked through by me. Hardware untested.

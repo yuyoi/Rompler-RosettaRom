@@ -1,0 +1,11 @@
+# Roland's copyrighted ROM data and anything decoded from it: supply your own dumps
+dumps/
+ctrl/
+samples/
+*.bin
+*.wav
+patched/
+selftest_out/
+rosetta_config.json
+__pycache__/
+*.rosetta
