@@ -2,18 +2,22 @@
 Pick a wave, drop in a WAV, rename, BUILD -> patched ROM images for your programmer. Hardware-untested.
 File menu: import ROM dumps, import a folder of WAVs (named 003_..., or by wave name), export all originals,
 save/open project, build. Look and feel follows U110 RomHex Studio."""
-import os, sys, glob, wave, io, json, re
+import os, sys, glob, wave, io, json, re, zipfile, tempfile
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import numpy as np
 from rosetta_d110 import rom_to_log, log_to_rom, log_to_lin, lin_to_log, read_wav
+try:
+    import windnd
+except ImportError:
+    windnd = None
 try:
     import winsound
 except ImportError:
     winsound = None
 
 HERE = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)); os.chdir(HERE)
-APP = 'Rosetta ROM Studio'; EXT = '.rosetta'; CFG = os.path.join(HERE, 'rosetta_config.json')
+APP = 'Rosetta ROM Studio'; EXT = '.rosetta'; CARD = '.rcard'; CFG = os.path.join(HERE, 'rosetta_config.json')
 FULL = 2.0 ** (32766 / 2048); RATE = 32000; NW = 128
 PANEL, PANEL_HI, RECESS, EDGE = '#1d2228', '#2a3038', '#12161a', '#0a0c0e'
 TEXT, DIM, SILK = '#eef1f3', '#8a96a0', '#ffffff'
@@ -151,6 +155,11 @@ def write_wav(fn, x):
     w.setnchannels(1); w.setsampwidth(2); w.setframerate(RATE); w.writeframes((x * 32767).astype(np.int16).tobytes()); w.close()
 
 
+def pcm16(x):
+    b = io.BytesIO(); w = wave.open(b, 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(RATE)
+    w.writeframes(np.clip(np.round(np.asarray(x) * 32768), -32768, 32767).astype(np.int16).tobytes()); w.close(); return b.getvalue()
+
+
 def wav_bytes(x):
     b = io.BytesIO(); write_wav(b, x); return b.getvalue()
 
@@ -227,9 +236,12 @@ class Studio(tk.Tk):
     def __init__(s):
         super().__init__(); s.geometry('1180x720'); s.minsize(980, 620); s.title(APP)
         apply_theme(s); dark_titlebar(s)
-        s.rom = s.first_rom(); s.swaps = {}; s.src = {}; s.renames = {}; s.path = None
+        s.rom = s.first_rom(); s.swaps = {}; s.src = {}; s.renames = {}; s.path = None; s.dirty = False; s.pv = 0
         s.norm = tk.BooleanVar(value=True); s.filt = tk.StringVar(value='All')
-        s.menu(); s.ui(); s.fill(); s.sel_first()
+        s.menu(); s.ui(); s.fill(); s.sel_first(); s.retitle()
+        s.protocol('WM_DELETE_WINDOW', s.quit_app)
+        if windnd:
+            windnd.hook_dropfiles(s, func=lambda files: s.after(30, lambda: s.on_drop(files)))
 
     def first_rom(s):
         try:
@@ -250,14 +262,15 @@ class Studio(tk.Tk):
 
     def menu(s):
         mb = tk.Menu(s); f = tk.Menu(mb, tearoff=0)
-        for l, c, a in (('Open project...', s.open, 'Ctrl+O'), ('Save project', s.save, 'Ctrl+S'), ('Save project as...', lambda: s.save(True), ''), (None,) * 3,
-                        ('Import ROM dumps (IC8, IC7, IC12)...', s.import_roms, ''), ('Import WAV folder...', s.import_folder, ''),
-                        ('Export all original waves to folder...', s.export_all, ''), (None,) * 3,
-                        ('Build ROM images...', s.build, 'Ctrl+B'), (None,) * 3, ('Exit', s.destroy, '')):
+        for l, c, a in (('New', s.new, 'Ctrl+N'), ('Open card / project...', s.open, 'Ctrl+O'), ('Save', s.save, 'Ctrl+S'), ('Save as...', lambda: s.save(True), 'Ctrl+Shift+S'), (None,) * 3,
+                        ('Import WAV(s) into selected wave...', s.import_wavs, 'Ctrl+I'), ('Import WAV folder...', s.import_folder, ''),
+                        ('Export all original waves to folder...', s.export_all, ''), ('Import ROM dumps (IC8, IC7, IC12)...', s.import_roms, ''), (None,) * 3,
+                        ('Build ROM images...', s.build, 'Ctrl+B'), (None,) * 3, ('Exit', s.quit_app, '')):
             f.add_separator() if l is None else f.add_command(label=l, command=c, accelerator=a)
         mb.add_cascade(label='File', menu=f)
         h = tk.Menu(mb, tearoff=0); h.add_command(label='How it works', command=s.help); mb.add_cascade(label='Help', menu=h); s.config(menu=mb)
-        for k, fn in (('<Control-o>', s.open), ('<Control-s>', s.save), ('<Control-b>', s.build)):
+        for k, fn in (('<Control-n>', s.new), ('<Control-o>', s.open), ('<Control-s>', s.save), ('<Control-S>', lambda: s.save(True)), ('<Control-b>', s.build),
+                      ('<Control-i>', s.import_wavs), ('<Delete>', s.undo)):
             s.bind(k, lambda e, fn=fn: fn())
 
     def ui(s):
@@ -346,8 +359,13 @@ class Studio(tk.Tk):
 
     # ---- play / edit
     def play(s, x):
-        if winsound:
-            winsound.PlaySound(wav_bytes(x), winsound.SND_MEMORY | winsound.SND_ASYNC)
+        if winsound:   # async playback needs a file (SND_MEMORY can't be async)
+            try:
+                winsound.PlaySound(None, winsound.SND_PURGE)
+                fn = os.path.join(tempfile.gettempdir(), 'rosetta_preview_%d.wav' % (s.pv % 2)); s.pv += 1
+                open(fn, 'wb').write(wav_bytes(x)); winsound.PlaySound(fn, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            except Exception as e:
+                s.v_st.set('Playback failed: %s' % e)
 
     def play_orig(s):
         i = s.cur()
@@ -377,7 +395,7 @@ class Studio(tk.Tk):
             if not quiet:
                 messagebox.showerror('WAV', '%s: %s' % (os.path.basename(fn), e))
             return False
-        s.swaps[i] = x; s.src[i] = fn; n = s.rom.ent[i][1]; s.refresh_row(i)
+        s.swaps[i] = x; s.src[i] = fn; n = s.rom.ent[i][1]; s.refresh_row(i); s.mark()
         s.v_st.set('Loaded %s (%.2fs). Slot holds %.2fs%s.' % (os.path.basename(fn), len(x) / RATE, n / RATE, ': will be truncated' if len(x) > n else ''))
         return True
 
@@ -390,7 +408,7 @@ class Studio(tk.Tk):
             s.renames.pop(i, None)
         else:
             s.renames[i] = v
-        s.refresh_row(i); s.update_head()
+        s.refresh_row(i); s.update_head(); s.mark()
 
     def undo(s):
         i = s.cur()
@@ -398,6 +416,7 @@ class Studio(tk.Tk):
             return
         for d in (s.swaps, s.src, s.renames):
             d.pop(i, None)
+        s.mark()
         if s.filt.get() == 'Changed':
             s.fill()
         else:
@@ -425,25 +444,63 @@ class Studio(tk.Tk):
             messagebox.showerror(APP, str(e)); return
         s.rom = new; json.dump(d, open(CFG, 'w'), indent=1); s.fill(); s.v_st.set('Loaded ROM dumps (remembered for next time).')
 
+    def import_wavs(s):
+        fns = filedialog.askopenfilenames(title='WAV file(s): one goes into the selected wave, several are matched by number/name', filetypes=[('WAV files', '*.wav')])
+        if fns:
+            s.import_files(list(fns))
+
     def import_folder(s):
         d = filedialog.askdirectory(title='Folder of WAVs (named 003_..., or by wave name)')
-        if not d:
+        if d:
+            s.import_files(sorted(glob.glob(os.path.join(d, '*.wav'))))
+
+    def import_files(s, fns, target=None):
+        """one WAV -> target (or selected) wave; several -> matched by leading number (003_x.wav) or by wave name"""
+        if len(fns) == 1 and (target is not None or s.cur() is not None):
+            i = target
+            if i is None:       # not dropped on a row: a numbered or named file (003_kick.wav) goes to its own wave, else the selected one
+                base = os.path.splitext(os.path.basename(fns[0]))[0]; m = re.match(r'^(\d{1,3})(?:\D|$)', base)
+                i = int(m.group(1)) if m and int(m.group(1)) < NW else None
+                if i is None:
+                    i = next((k for k in range(NW) if re.sub(r'\W', '', s.rom.names[k]).lower() == re.sub(r'\W', '', base).lower()), s.cur())
+            if s.set_wav(i, fns[0]):
+                if s.tv.exists(str(i)):
+                    s.tv.selection_set(str(i))
+                s.update_head(); s.play_new()
             return
         byname = {}
         for i in range(NW):
             byname.setdefault(re.sub(r'\W', '', s.rom.names[i]).lower(), i)
         ok = skip = 0
-        for fn in sorted(glob.glob(os.path.join(d, '*.wav'))):
-            base = os.path.splitext(os.path.basename(fn))[0]; m = re.match(r'^(\d{1,3})(?:\D|$)', base); i = None
-            if m and int(m.group(1)) < NW:
-                i = int(m.group(1))
-            else:
-                i = byname.get(re.sub(r'\W', '', base).lower())
+        for fn in fns:
+            base = os.path.splitext(os.path.basename(fn))[0]; m = re.match(r'^(\d{1,3})(?:\D|$)', base)
+            i = int(m.group(1)) if m and int(m.group(1)) < NW else byname.get(re.sub(r'\W', '', base).lower())
             if i is not None and s.set_wav(i, fn, quiet=True):
                 ok += 1
             else:
                 skip += 1
         s.fill(); s.v_st.set('Imported %d WAVs, skipped %d (name them 003_x.wav or use the wave name).' % (ok, skip))
+
+    def on_drop(s, files):
+        names = []
+        for f in files:
+            try:
+                names.append(f.decode('utf-8'))
+            except UnicodeDecodeError:
+                names.append(f.decode('mbcs'))
+        cards = [f for f in names if f.lower().endswith((CARD, EXT))]
+        if cards:
+            s.open(cards[0]); return
+        wavs = []
+        for f in names:
+            wavs += sorted(glob.glob(os.path.join(f, '*.wav'))) if os.path.isdir(f) else ([f] if f.lower().endswith('.wav') else [])
+        if not wavs:
+            s.v_st.set('Drop WAV files, a folder of WAVs, or a card/project.'); return
+        x, y = s.winfo_pointerxy(); w = s.winfo_containing(x, y); target = None
+        if w is s.tv:
+            r = s.tv.identify_row(y - s.tv.winfo_rooty())
+            target = int(r) if r else None
+        s.import_files(wavs, target)
 
     def export_all(s):
         d = filedialog.askdirectory(title='Folder for the original waves')
@@ -462,22 +519,78 @@ class Studio(tk.Tk):
         files = build(s.rom, s.swaps, s.renames, d, s.norm.get()); s.v_st.set('Built: ' + ', '.join(files))
         messagebox.showinfo(APP, 'Wrote %s\nto %s\n\nProgram each image to its own chip. Images are in chip byte order, as dumped.' % (', '.join(files), d))
 
-    def save(s, as_new=False):
-        fn = (None if as_new else s.path) or filedialog.asksaveasfilename(defaultextension=EXT, filetypes=[('Rosetta project', '*' + EXT)])
-        if not fn:
-            return
-        json.dump({'wavs': {str(i): p for i, p in s.src.items()}, 'names': {str(i): n for i, n in s.renames.items()}}, open(fn, 'w'), indent=1)
-        s.path = fn; s.title('%s - %s' % (APP, os.path.basename(fn))); s.v_st.set('Saved ' + fn)
+    # ---- cards (.rcard: self-contained, samples only, no Roland data) and projects (.rosetta: paths to WAVs)
+    def mark(s, d=True):
+        s.dirty = d; s.retitle()
 
-    def open(s):
-        fn = filedialog.askopenfilename(filetypes=[('Rosetta project', '*' + EXT)])
+    def retitle(s):
+        s.title('%s - %s%s' % (APP, os.path.basename(s.path) if s.path else 'untitled', ' *' if s.dirty else ''))
+
+    def check_save(s):
+        if not s.dirty:
+            return True
+        a = messagebox.askyesnocancel(APP, 'Save changes to %s?' % (os.path.basename(s.path) if s.path else 'untitled'))
+        if a is None:
+            return False
+        return s.save() if a else True
+
+    def new(s):
+        if not s.check_save():
+            return
+        s.swaps.clear(); s.src.clear(); s.renames.clear(); s.path = None; s.mark(False); s.fill()
+
+    def quit_app(s):
+        if s.check_save():
+            s.destroy()
+
+    def save(s, as_new=False):
+        fn = None if as_new else s.path
+        if not fn:
+            fn = filedialog.asksaveasfilename(defaultextension=CARD, initialfile=os.path.basename(s.path or 'my_card' + CARD),
+                                              filetypes=[('Rosetta card (self-contained, shareable)', '*' + CARD), ('Rosetta project (links to WAV files)', '*' + EXT)])
+        if not fn:
+            return False
+        if fn.lower().endswith(EXT):
+            json.dump({'wavs': {str(i): p for i, p in s.src.items() if not str(p).startswith('card:')},
+                       'names': {str(i): n for i, n in s.renames.items()}}, open(fn, 'w'), indent=1)
+        else:
+            if not fn.lower().endswith(CARD):
+                fn += CARD
+            meta = {'format': 'rosetta-card', 'version': 1, 'machine': 'D-110', 'name': os.path.splitext(os.path.basename(fn))[0],
+                    'waves': {str(i): {'file': 'w%03d.wav' % i, 'src': os.path.basename(str(s.src.get(i, '')))} for i in s.swaps},
+                    'names': {str(i): n for i, n in s.renames.items()}}
+            with zipfile.ZipFile(fn, 'w', zipfile.ZIP_DEFLATED) as z:
+                z.writestr('card.json', json.dumps(meta, indent=1))
+                for i, x in s.swaps.items():
+                    z.writestr('w%03d.wav' % i, pcm16(x))
+        s.path = fn; s.mark(False); s.v_st.set('Saved ' + fn); return True
+
+    def open(s, fn=None):
+        if not s.check_save():
+            return
+        fn = fn or filedialog.askopenfilename(filetypes=[('Rosetta card or project', '*%s;*%s' % (CARD, EXT))])
         if not fn:
             return
-        d = json.load(open(fn)); s.swaps.clear(); s.src.clear(); s.renames.clear(); s.path = fn
-        for i, p in d.get('wavs', {}).items():
-            if not s.set_wav(int(i), p, quiet=True):
-                messagebox.showwarning(APP, 'Could not load ' + p)
-        s.renames.update({int(i): n for i, n in d.get('names', {}).items()}); s.title('%s - %s' % (APP, os.path.basename(fn))); s.fill()
+        s.swaps.clear(); s.src.clear(); s.renames.clear()
+        try:
+            if fn.lower().endswith(CARD):
+                with zipfile.ZipFile(fn) as z:
+                    d = json.loads(z.read('card.json'))
+                    if d.get('format') != 'rosetta-card':
+                        raise ValueError('not a Rosetta card')
+                    for i, w in d.get('waves', {}).items():
+                        with wave.open(io.BytesIO(z.read(w['file']))) as wv:
+                            x = np.frombuffer(wv.readframes(wv.getnframes()), np.int16).astype(np.float64) / 32768.0
+                        s.swaps[int(i)] = x; s.src[int(i)] = 'card:' + (w.get('src') or w['file'])
+            else:
+                d = json.load(open(fn))
+                for i, p in d.get('wavs', {}).items():
+                    if not s.set_wav(int(i), p, quiet=True):
+                        messagebox.showwarning(APP, 'Could not load ' + p)
+            s.renames.update({int(i): n for i, n in d.get('names', {}).items()})
+        except Exception as e:
+            messagebox.showerror(APP, 'Could not open %s: %s' % (os.path.basename(fn), e)); return
+        s.path = fn; s.fill(); s.mark(False); s.v_st.set('Opened ' + os.path.basename(fn))
 
     def help(s):
         messagebox.showinfo('How it works',
@@ -485,7 +598,8 @@ class Studio(tk.Tk):
             'Pick a wave, Load WAV: it replaces that slot in IC8 (drums, #0-31) or IC7 (instruments, #32+).\n'
             'The slot keeps its position and length: longer WAVs are cut, shorter ones padded. 32 kHz mono.\n'
             'Rename edits the 8-character name in IC12 (IC12 must be reprogrammed too).\n\n'
-            'File > Export all original waves, edit them, then File > Import WAV folder to swap them all back in.\n'
+            'Drag WAVs onto the list (onto a row = that wave), a folder, or a card. Save as .rcard = self-contained card, only your samples (shareable, no Roland data); .rosetta = project linking to your WAV files.\n'
+            'File > Export all original waves, edit them, then Import WAV folder to swap them all back in.\n'
             'Wheel = zoom, Shift+wheel = pan, right-click = fit. Double-click a wave to hear the original.\n'
             'Looped waves (* in Time) preview 3x. BUILD writes patched .bin images. Hardware-untested.')
 
