@@ -85,3 +85,15 @@ Needs your own ROM dumps (not included). Known limits: slots are 0.06-0.5 s so l
 length codes 4-7 untested; PN-D10-01 card shows "No Data" in the modded unit (cause unknown).
 
 Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-128 of the recorded bank in order, loops at the end.
+
+## TODO
+- [ ] **Patch workflow (no Roland data in the repo):** pack builder writes a `.rpatch` (new wave audio, PCM-table entries, names only); a small separate injector script applies it to the user's OWN IC15/IC7/IC8 dumps, checks the dump revision (MD5), tiles IC15 4x for the SST39SF040 and writes the three burn files. Studio gets File > "Apply Noise Pack" calling the injector; the program must still launch and work with no dumps loaded.
+- [ ] Built-in noise pack preset (pink/white noise, buzz loops, noise drums; from `gen_glitch_bank.py`) as one of those patches.
+- [ ] PN-D10-01 ROM card shows "No Data" in the modded unit: test the card in a GR-50.
+- [ ] Length codes 4-7 (samples longer than 0.51 s without the stretch trick) untested.
+- [ ] Rebuild `dist/Rosetta ROM D110.exe` (current exe is v0.1).
+
+## Reading your own IC15 (the LH5310 control ROM)
+IC15 is a 28-pin DIP LH5310-DJ mask ROM (128 KB, board designator IC15; the dump set calls it "ic12"). Pinout, top view: A15 1, A12 2, A7 3, A6 4, A5 5, A4 6, A3 7, A2 8, A1 9, A0 10, D0 11, D1 12, D2 13, GND 14, D3 15, D4 16, D5 17, D6 18, D7 19, /OE 20, A10 21, A16 22, A11 23, A9 24, A8 25, A13 26, A14 27, Vcc 28. Note A16 sits on pin 22, where a 27C256 has OE#, and /OE on pin 20, where a 27C256 has CE#, so a plain 27C256 profile does not work without an adapter or jumper.
+- Read on a T48 with `minipro -p <profile> -x -r ic15.bin` (`-x` skips the chip-ID check, mask ROMs have none) and compare against the known revision before patching.
+- TODO (author to fill in): exact socket/adapter and jumper wiring used to read it, and which T48 profile.
