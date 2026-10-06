@@ -5,6 +5,20 @@ Dump checked 2026-10-06: SHA1 `28635510f30d6c1fb88e00da03e5b4e045c380cb`, CRC32 
 flow tracer), `test_mcs96_dis.py` (decoder vs MAME's i8x9x disassembler on every byte offset: 0 mismatches).
 "Verified" = read from the traced code. "Hypothesis" = plausible, not yet confirmed.
 
+## Resume here: stage 2
+- **Repo `yuyoi/Rompler-RosettaRom`, branch `claude/chat-session-0e24rd`** (not `yuyoi/u110-romhex-studio`).
+- The ROM is not in git. Put your own IC19 dump at `ctrl/ic19.bin` and check `sha1sum` = the SHA1 above (v1.10;
+  other versions decode fine but every address in this file is for v1.10). Then regenerate the private listing:
+  `python mcs96_dis.py ctrl/ic19.bin -o ctrl/ic19.lst` and `python mcs96_dis.py ctrl/ic19.bin --summary`.
+  Optional decoder check: `sh mame_ref/build.sh && python test_mcs96_dis.py` (expects 0 mismatches).
+- Plan, in order:
+  1. **UI menu tables**: read the interpreter at `0x53A3` (see "UI dispatch" below), work out the descriptor format, and
+     teach the tracer to follow its handler pointers. Expected to bring in most of the ~10 KB of untraced code.
+  2. **MIDI input**: follow the serial interrupt `0x1DAC` to the receive buffer and the SysEx parser (part/channel mapping).
+  3. **I/O devices** at `0x0280`, `0x0400`, `0x0800` and `0x0C00-0x0DC2`: which chip is which (LA32 hypothesis below,
+     reverb control) and the register layout.
+  Then pick the first small patch (SysEx or UI tweak) and test it in an emulator before burning an EPROM.
+
 ## CPU and memory map
 CPU N8097BH (MCS-96) at 12 MHz, BUSWIDTH tied low (8-bit external bus). Map from MAME `roland_d10.cpp`, confirmed by the code:
 
@@ -66,9 +80,6 @@ So those table addresses are hard-coded in IC19: moving a table means patching t
 ~5000 instructions / 15.3 KB of code traced from the vectors, 6 jump tables, 1 RAM copy, 0 decode conflicts.
 Untraced but decoding cleanly as code: roughly 10 KB, mostly UI handlers behind the descriptors.
 
-## Open items
-1. Decode the `0x53A3` descriptor format and feed its handler pointers to the tracer.
-2. Identify the devices at `0x0280`, `0x0400`, `0x0800`, `0x0C00-0x0DC2` (LA32 register layout, reverb control).
-3. MIDI input path from the serial interrupt `0x1DAC` (SysEx parser, part/channel mapping).
-4. What IC12 `0x0F00` holds (word table, indexed like the rhythm map).
-5. Where the system tables munt calls reserve/pan/program/max/soundgroup live (IC12 or IC19).
+## Other open items (besides the stage 2 plan above)
+1. What IC12 `0x0F00` holds (word table, indexed like the rhythm map).
+2. Where the system tables munt calls reserve/pan/program/max/soundgroup live (IC12 or IC19).
