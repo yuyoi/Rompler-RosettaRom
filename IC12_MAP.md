@@ -45,10 +45,10 @@ IC19 (32 KB) is the 8095 OS, IC6 (32 KB) is not identified. Nothing in IC12 is c
 
 ## Open items (to finish the reverse engineering)
 1. `0x1000-0x11FF` table and `0x0D80-0x0FFF` blob (rhythm key settings? sequence data?).
-2. Where the 8095 OS (IC19) reads rhythm key -> timbre (needs 8095 disassembly), and the system tables munt calls reserve/pan/program/max/soundgroup/startup message (none located yet in IC12; they may live in IC19 or IC6).
-3. Whether the OS assumes fixed addresses for the 0x0000/0x0900/0x0D00 tables (matters for adding wave entries or repurposing the ~82 KB demo area).
+2. Where the 8095 OS (IC19) reads rhythm key -> timbre (needs 8095 disassembly), and the system tables munt calls reserve/pan/program/max/soundgroup/startup message (none located yet in IC12; they may live in IC19). Lead (IC19_MAP.md): the OS reads the rhythm map at `0x25F2`/`0x4DD0` and a word table at IC12 `0x0F00` at `0x2573`/`0x4D8B`.
+3. ~~Whether the OS assumes fixed addresses for the 0x0000/0x0900/0x0D00 tables~~ **Yes**: IC19 reads them with absolute operands (`0x8000`, `0x8900`/`0x8902`, `0x8D00`, plus `0x8F00`) after selecting bank page `0x20` (IC19_MAP.md). Moving a table = patching those operands.
 4. Demo song format (0xB000+), only needed if the area is reused.
-5. IC6 `r15179879` contents.
+5. ~~IC6 `r15179879` contents.~~ The BOSS reverb chip's program ROM (MAME `roland_d10.cpp`, region "boss"); not CPU code.
 
 ## Hardware: replacing IC12 (LH5310, "TONE ROM") - from the D-110 service notes p.12 "IC DATA" (read 2026-10-05)
 LH5310-DJ, 28-pin DIP, top view (the board footprint is 28-pin, NOT 32):

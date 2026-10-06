@@ -15,3 +15,8 @@ build_tmp/
 !*.exe.keep
 private_banks/
 tools/
+# MAME reference disassembler: sources are fetched and built by mame_ref/build.sh
+mame_ref/*
+!mame_ref/build.sh
+!mame_ref/emu.h
+!mame_ref/mame_dasm.cpp

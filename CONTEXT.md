@@ -99,3 +99,9 @@ SST39SF040 (DIP-32): A18 on pin 1, WE# on pin 31 (mask: pin 1 NC, pin 31 A18). E
 ## Way-different ROM sets (2026-10-05): gen_way_different.py -> private_banks/way_different/{safe,long}/
 - safe = stock table layout, 111 synthesised waves (drum voices from gen_test_card + 11 looped + 10 one-shot recipes, tonal ones get an exact pitch field), new IC12 names. long = same plus DroneL 4.10 s loop, SubBoom 2.05 s, LongCrsh 1.02 s, Kick808 1.02 s; 72 waves freed (play silence, parked on one silent unit), old audio wiped.
 - Studio v0.3 additions used: pitches= override, freed waves parked on a silent unit, wipe of freed/moved audio. Decode check 1.0000 on both sets; no Roland audio left in IC8/IC7 (IC12 still holds Roland's control data -> private). Hardware: untested; burn safe/ first.
+
+## D-110 OS ROM (IC19) disassembly started (2026-10-06) - see IC19_MAP.md
+- Dump = MAME `d-110.v1.10.ic19.bin` (SHA1 28635510...). CPU N8097BH (MCS-96), memory map from MAME roland_d10.cpp: IC19 code at 0x1000-0x7FFF, 16 KB bank window at 0x8000 (latch 0x0100: page 0x00 IC19 low, 0x11 RAM, 0x20 IC12, 0x30/0x31 card), fixed RAM 0xC000.
+- mcs96_dis.py: decoder matches MAME's i8x9x disassembler on every byte offset (random 64 KB + whole IC19). Tracer follows vectors, jump tables, rb4 UI handler pointers, window code (factory test mode at IC19 0x0A00) and the RAM trampoline (IC19 0x0F22 -> 0xF000). 15.3 KB of code traced, no conflicts.
+- The OS reads IC12 tables at hard-coded addresses (0x0000, 0x0900, 0x0D00 and an unknown word table at 0x0F00) with bank page 0x20. IC6 = BOSS reverb program ROM.
+- Next: decode the UI descriptor interpreter at 0x53A3 (most untraced code), identify the I/O at 0x0280/0x0400/0x0800/0x0C00-0x0DC2 (LA32?), trace the MIDI input path from the serial interrupt 0x1DAC.

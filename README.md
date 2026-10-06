@@ -57,6 +57,8 @@ plus `report.txt`. Images are in chip byte order, as dumped. Renaming needs IC12
 | `rosetta_swap.py`, `swap_ic8.py` | CLI swap tools |
 | `probe_pcm.py`, `table_test.py`, `split_table.py`, `test_*.py` | analysis and tests used to work the format out |
 | `CONTEXT.md` | working notes, findings and open questions |
+| `mcs96_dis.py`, `test_mcs96_dis.py`, `mame_ref/` | MCS-96 disassembler + flow tracer for the D-110 OS ROM (IC19); test against MAME's disassembler |
+| `IC12_MAP.md`, `IC19_MAP.md` | control ROM and OS ROM structure maps |
 
 ## Credits and legal
 
@@ -92,6 +94,15 @@ Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-12
 - [ ] PN-D10-01 ROM card shows "No Data" in the modded unit: test the card in a GR-50.
 - [ ] Length codes 4-7 (samples longer than 0.51 s without the stretch trick) untested.
 - [ ] Rebuild `dist/Rosetta ROM D110.exe` (current exe is v0.1).
+
+## Disassembling the OS ROM (IC19)
+IC19 (32 KB, socketed) holds the 8097 program. With your own dump in `ctrl/ic19.bin` (gitignored):
+```
+python mcs96_dis.py ctrl/ic19.bin -o ctrl/ic19.lst     # listing: traced code, jump tables, data
+python mcs96_dis.py ctrl/ic19.bin --summary            # vectors, code/data map, I/O and RAM references
+sh mame_ref/build.sh && python test_mcs96_dis.py       # optional: check the decoder against MAME
+```
+The listing is derived from Roland's code: keep it private. Findings so far: `IC19_MAP.md`.
 
 ## Reading your own IC15 (the LH5310 control ROM)
 IC15 is a 28-pin DIP LH5310-DJ mask ROM (128 KB, board designator IC15; the dump set calls it "ic12"). Pinout, top view: A15 1, A12 2, A7 3, A6 4, A5 5, A4 6, A3 7, A2 8, A1 9, A0 10, D0 11, D1 12, D2 13, GND 14, D3 15, D4 16, D5 17, D6 18, D7 19, /OE 20, A10 21, A16 22, A11 23, A9 24, A8 25, A13 26, A14 27, Vcc 28. Note A16 sits on pin 22, where a 27C256 has OE#, and /OE on pin 20, where a 27C256 has CE#, so a plain 27C256 profile does not work without an adapter or jumper.
