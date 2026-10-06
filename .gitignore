@@ -13,3 +13,5 @@ dist/
 build_tmp/
 *.spec
 !*.exe.keep
+private_banks/
+tools/

@@ -56,3 +56,46 @@ Generalises U110 HexWizard (one card format) -> per-machine "stones": address/da
 ## Rosetta ROM Studio v0.1 (2026-10-05)
 - rosetta_studio.pyw (run: py -3.10 rosetta_studio.pyw). U110-Studio look (theme/LCD/LED meter copied). Wave list (128, filter IC8/IC7/Changed), waveform original vs replacement, load WAV, rename (8 chars), normalize, play. File: save/open project (.rosetta json), import ROM dumps (remembered in rosetta_config.json), import WAV folder (003_x.wav or by name), export all original waves, BUILD -> patched IC8/IC7/IC12 + report.txt.
 - --selftest builds headless. Launches OK; GUI not yet clicked through by me. Hardware untested.
+
+## HN62304B pinout - FROM THE D-110 SERVICE NOTES p.12 "IC DATA" (2026-10-05) - standard JEDEC, = 27C040 layout
+"PCM ROM A/B  HN62304BPC99 / HN62304BPD10" (A = IC7 r15179878 = C99, B = IC8 r15179880 = D10 presumably), top view, DIP-32:
+```
+ NC   1 +-v-+ 32 VDD          pin 1 NC (EPROM VPP), pin 31 = A18, pin 30 = A17, 24 = OE#, 22 = CE#, 16 = GND
+ A16  2 |   | 31 A18          -> AM27C040@DIP32 is the right T48 profile
+ A15  3 |   | 30 A17
+ A12  4 |   | 29 A14
+ A7   5 |   | 28 A13
+ A6   6 |   | 27 A8
+ A5   7 |   | 26 A9
+ A4   8 |   | 25 A11
+ A3   9 |   | 24 OE#
+ A2  10 |   | 23 A10
+ A1  11 |   | 22 CE#
+ A0  12 |   | 21 D7
+ D0  13 |   | 20 D6
+ D1  14 |   | 19 D5
+ D2  15 |   | 18 D4
+ GND 16 +---+ 17 D3
+```
+An earlier note here (nesdev forum pinout with VCC on pin 16) was WRONG for this part; removed. T48 "bad pin position" is therefore placement/contact, not the profile.
+SST39SF040 (DIP-32): A18 on pin 1, WE# on pin 31 (mask: pin 1 NC, pin 31 A18). Everything else matches, so the swap needs only: mask pin 31 (A18) -> SST pin 1, SST pin 31 (WE#) tied to VDD. Verify CE#/OE# polarity is normal (active low per the manual).
+
+## IC12 fully mapped (2026-10-05, second pass) - see IC12_MAP.md, ctrl/ic12_dump.py
+- IC12 layout follows munt's ControlROMMap: 0x0000 preset timbre map (128 x u16), 0x0100 wave names (256), 0x0900 PCM table (256 x 4 B), 0x0D00 rhythm timbre map (pointer - 0x8000), 0x1200 rhythm timbres, 0x3000-0x3BFF drum patterns, 0x4000 preset timbres (compressed: 14 B + 58 B per unmuted partial), 0xB000-0x1EBFF three demo songs (~82 KB).
+- PITCH FIELD SOLVED: u16, 4096/octave, 0x5000 = native 32 kHz at middle C; others are exact semitone offsets (AcPianoH +2.00 st). Swap formula: pitch = 4096*(5+log2(R/32000)) - (root-60)*4096/12.
+- PCM table has 256 entries but 128 distinct addresses (bank 2 = drum set aliases + loop slices). Wave index of a PCM partial = pcmWave + 128 if waveform > 1. PCM-or-synth comes from the partial structure table PS=[0,0,2,2,1,3,3,0,3,0,2,1,3].
+- Still open: 0x0D80-0x11FF blobs (rhythm key settings?), reserve/pan/program tables (not in IC12, probably IC19/IC6), whether the OS hard-codes table addresses.
+
+## Rosetta ROM Studio v0.2 (2026-10-05): pitch + loop + three files
+- rosetta_studio.pyw: per-wave ROOT NOTE (name or MIDI, middle C = C4 = 60) writes the IC12 pitch field (`0x5000 - (root-60)*4096/12`) to every table entry that points at the same data (bank-2 drum aliases follow automatically); LOOP combobox sets/clears the loop bit (0x80 of the len byte). BUILD always writes IC8, IC7 and IC12 patched + report.txt (with a decode check per swapped wave). Roots/loops saved in .rosetta and .rcard.
+- Selftest (`--selftest`): decode check 1.0000, IC12 diff = only names, pitch and loop bytes. Hardware-untested: first test = one swapped wave with its root set, played at the root key.
+- dist/RosettaROMStudio.exe is the OLD v0.1 build (not rebuilt).
+
+## Rosetta ROM Studio v0.3 (2026-10-05): long samples via table rewrite
+- A WAV longer than its slot MOVES to a bigger slot (0x800<<e samples, e up to 7 = 8.19 s) and every IC12 table entry sharing the old slot (same pos + length code, incl. the bank-2 drum aliases) is rewritten. plan_layout() allocates; rule seen on all 256 stock entries: every slot is aligned to its own length, so the 1 MB wave space (16.4 s, currently 100% occupied) holds 4 x 4.10 s or 2 x 8.19 s. "Free this wave's space" checkbox releases waves you do not need (their sub-slices lying in freed space go with them).
+- test_repack.py: 3.9 s + 8.0 s waves relocate, decode corr 1.0000, all 256 entries stay aligned/in range, no-space case refused cleanly, in-place swap leaves IC12 byte-identical.
+- HARDWARE UNKNOWN: no stock wave uses a length code above 3 (max 0.51 s), so whether the LA32 handles e = 4..7 is untested. Test with one 2-4 s sample first.
+
+## Way-different ROM sets (2026-10-05): gen_way_different.py -> private_banks/way_different/{safe,long}/
+- safe = stock table layout, 111 synthesised waves (drum voices from gen_test_card + 11 looped + 10 one-shot recipes, tonal ones get an exact pitch field), new IC12 names. long = same plus DroneL 4.10 s loop, SubBoom 2.05 s, LongCrsh 1.02 s, Kick808 1.02 s; 72 waves freed (play silence, parked on one silent unit), old audio wiped.
+- Studio v0.3 additions used: pitches= override, freed waves parked on a silent unit, wipe of freed/moved audio. Decode check 1.0000 on both sets; no Roland audio left in IC8/IC7 (IC12 still holds Roland's control data -> private). Hardware: untested; burn safe/ first.
