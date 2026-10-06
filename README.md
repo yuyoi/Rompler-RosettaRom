@@ -68,3 +68,18 @@ plus `report.txt`. Images are in chip byte order, as dumped. Renaming needs IC12
 - MIT licensed (see `LICENSE`).
 
 logo: runic ring spells ROSETTA (Elder Futhark) round a cross pattee; the purple rosette is the "little rose" of the name, and the Rosetta Stone, the key between scripts. `python make_logo.py` regenerates `assets/`.
+
+## Status: working prototype (2026-10-06)
+Custom samples play on a real Roland D-110 from SST39SF040 flash in IC7, IC8 and IC15 (x4 image on IC15). Verified with a synthetic glitch bank,
+organic/drum banks and a bank made from the author's own voice recordings (intelligible on the hardware).
+
+Wiring lessons: lift SST pin 24 (OE#) clear of any pad and ground it separately; check every net with a continuity beeper; do not use two sets of
+pin labels on one picture. Always read a chip first, write, read back and compare MD5.
+
+Record-your-own workflow:
+1. `rosetta_recorder.pyw`: hold SPACE to record a snip (mic -> 32 kHz mono, trimmed, normalised) into `recordings/NNN_label.wav`.
+2. `py -3.10 gen_recorded_bank.py`: fills every wave slot with a take (or a reversed/crushed/sped-up variant), names each wave by what it
+   sounds like, stretches long takes into small slots (S=2/4 with the pitch field lowered), writes IC8/IC7/IC15 burn files + `key.txt`.
+3. Burn IC15, IC8, IC7 (`minipro -p SST39SF040 -w file`, verify by read-back), RAM-reset the D-110 so the new names load.
+Needs your own ROM dumps (not included). Known limits: slots are 0.06-0.5 s so long takes are stretched (8 kHz bandwidth at S=4);
+length codes 4-7 untested; PN-D10-01 card shows "No Data" in the modded unit (cause unknown).
