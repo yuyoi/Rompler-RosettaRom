@@ -83,3 +83,5 @@ Record-your-own workflow:
 3. Burn IC15, IC8, IC7 (`minipro -p SST39SF040 -w file`, verify by read-back), RAM-reset the D-110 so the new names load.
 Needs your own ROM dumps (not included). Known limits: slots are 0.06-0.5 s so long takes are stretched (8 kHz bandwidth at S=4);
 length codes 4-7 untested; PN-D10-01 card shows "No Data" in the modded unit (cause unknown).
+
+Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-128 of the recorded bank in order, loops at the end.
