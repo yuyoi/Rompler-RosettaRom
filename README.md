@@ -145,11 +145,12 @@ Details: `IC19_MAP.md` ("Stage 3", "Quick screen"). Code: `patch_ic19.py`, `ic19
 **v8 on hardware (user test):** boots, the Info line reads `Mem oooo P01 v8` (all RAM spots ok), the Lab items work
 (see Lab). The rest of v8 (arp, unison, glide, LFO, wave seq, saved settings) is not reported yet.
 **v9 on hardware:** user: "it all looks great and seems to work well" (no feature-by-feature report yet).
-**v10 (menu layout, banner, Mod / Lab On-Off) is simulator-only.** v10 keeps the v9 settings and sequence.
+**v10 (menu layout, banner, Mod / Lab On-Off) and v11 (Lab Motion) are simulator-only.** Both keep the v9 settings
+and sequence (v11 adds its own defaults).
 v6 plus new features whose code lives in IC15 page 0x27: code at IC15 0x1C000-0x1EFFF (the end of the demo songs,
 unused once the Quick mod has replaced the demo menu), the jump table at 0x1F000 and data after it (0x1F020-0x1FFFF).
 IC19 gets only small hooks. With a stock IC15 the hooks find no magic word and the unit behaves exactly like v6.
-IC19 is the same in v8, v9 and v10 (MD5 `08ebae6e...`): later versions only need IC15 reburned.
+IC19 is the same in v8 to v11 (MD5 `08ebae6e...`): later versions only need IC15 reburned.
 - **Rosetta menu:** on the Quick screen press **Edit**. Group +/- = item, Bank +/- = value -/+1, Number +/- = -/+10,
   Part = current part (P1-P8, also on the Quick screen), Exit = back. One line per feature; items marked `>` have a
   **submenu** with all their settings: Edit opens it, Group +/- moves inside it, Exit (or Edit) goes back. Top level:
@@ -185,6 +186,11 @@ IC19 is the same in v8, v9 and v10 (MD5 `08ebae6e...`): later versions only need
     Lab Reso Low (bits 0-4, including 0 and 31 that Roland never uses), Lab Ctrl XOR (0-255: flips the control byte
     of synth partials; bit 7 = "PCM"), Lab PCM XOR (control byte of PCM partials), Lab PCM Pos (flips the sample
     position bits: other samples / other memory), Lab Part (All or one part).
+    **Lab Motion** (in the Lab submenu): Motion Off / Up / Down / Ping / Random changes a value 0..Motion Range by
+    Motion Step at Motion Rate (Note = every new note, or 1/1 .. 1/64 on the arp tempo / MIDI clock; the first clock
+    after MIDI start steps) and XORs it into Motion Dest (PCM Pos, Ctrl XOR, PCM XOR or All) on top of the Lab values.
+    Retrigger On: every step plays the held notes of the Lab parts again (whole chords / unison voices; mono legato
+    follows the moved note), so one held key runs through new positions / transients as a stutter.
     **Hardware (v8):** Lab Reso High 7 (bits 5-7 = 110) gives much stronger resonance than the stock maximum.
     Lab Ctrl XOR 8 (bit 3) with Reso High 7: the note is replaced by a transient wind (noise) sound. Every XOR value
     gives a different transient. Reso High 1-6 not reported yet. Ctrl XOR 64-255, Reso Low and the PCM items are new

@@ -368,7 +368,8 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   `0xF9D0`, the SysEx LCD area ends at `0xF72C`). Rosetta v9: per-partial tables at `0xF500` (pitch base, glide),
   `0xF580`, `0xF5C0`, `0xF740`, `0xF780` (a partial is synth or PCM, type byte `0xF741[p]`, so synth-only and
   PCM-only values share bytes); settings (magic word) `0xF600-0xF62F` + `0xF670-0xF69F`, recorded arp sequence
-  `0xF650-0xF66F` (battery RAM, kept); state `0xF630-0xF64F` and `0xF7C0-0xF7FF` (cleared at power-on).
+  `0xF650-0xF66F` (battery RAM, kept); state `0xF630-0xF64F`, `0xF6A0-0xF6A3`, the odd bytes of `0xF780-0xF7BF` and `0xF7C0-0xF7FF` (cleared at
+  power-on).
   Registers `0x1A-0x3F` and `0x90-0x9F` are never used by the OS. v7/v7b showed garbage values and edits that did not
   stick; the cause was a word read at an odd address (`ld r74,16[r78]` from the menu table), not the RAM. The Info
   item tests `0xF500`, `0xF6A0`, `0xF740`, `0xF7F0` (hardware, v8: all ok).

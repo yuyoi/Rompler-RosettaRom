@@ -41,7 +41,9 @@ VOL = dict(LASTN=0xf7c0, MSTK=0xf7c8, ABUF=0xf7d0, MNC=0xf7dc, MNP=0xf7de, MNW=0
            CIVP=0xf630, RTI=0xf632, RTT=0xf634, LCC=0xf636, LACC=0xf638, VPH=0xf63a, SLEN=0xf63c, MPAR=0xf63e,
            RTN=0xf63f, ARN=0xf640, AVL=0xf641, ECNT=0xf642, ASC=0xf643, HJ=0xf644, LARM=0xf645, LCNT=0xf646,
            LHC=0xf647, RECM=0xf648, RPOS=0xf649, LCUR=0xf64a, LNX=0xf64b, EPC=0xf64c, RRT=0xf64d, MON=0xf64e,
-           MCH=0xf64f)
+           MCH=0xf64f, BPOS=0xf6a0, MPH=0xf6a2,
+           # odd bytes of the per-partial block 0xF780 (WI uses the even ones): Lab motion, held notes (stride 2)
+           MV=0xf781, MDIR=0xf783, HCNT=0xf785, RFLG=0xf787, RI=0xf789, HN=0xf78b, HV=0xf79b, HP=0xf7ab)
 SEQ_DEFAULT = [0, 0x81, 12, 0, 0x80, 7, 10, 12, 0, 12, 0x80, 7, 3, 0x81, 5, 7]     # semitones, 0x80 rest, 0x81 tie
 # persistent settings (battery RAM), with defaults, in blocks (start, end)
 SETTINGS = [(0xf600, 0xf630, [
@@ -57,7 +59,10 @@ SETTINGS = [(0xf600, 0xf630, [
                 ('EUCN', 1, 0), ('HUMT', 1, 0), ('HUMV', 1, 0), ('ARPOUT', 1, 0), ('VINT', 1, 0), ('VINTP', 1, 0),
                 ('LFOSYNC', 1, 0), ('SCKEY', 1, 0), ('SCTYPE', 1, 0), ('LRLOW', 1, 0), ('LPXOR', 1, 0),
                 ('LPPOS', 1, 0), ('LPART', 1, 0), ('SEQLEN', 1, len(SEQ_DEFAULT)), ('CLRN', 4, [7, 12, 0, 0]),
-                ('MODOFF', 1, 0), ('LABOFF', 1, 0)]),          # v10: master switches, 0 = On (v9 RAM has 0 there)
+                ('MODOFF', 1, 0), ('LABOFF', 1, 0),            # v10: master switches, 0 = On (v9 RAM has 0 there)
+                # v11: Lab motion; XMARK != XMARK_V (older RAM) -> these get their defaults, the rest is kept
+                ('LMMODE', 1, 0), ('LMDEST', 1, 0), ('LMRATE', 1, 6), ('LMRANGE', 1, 15), ('LMSTEP', 1, 1),
+                ('LMRETRIG', 1, 1), ('XMARK', 1, 0x11)]),
             (0xf650, 0xf670, [
                 ('SEQ', 32, [b + 64 if b < 0x80 else b for b in SEQ_DEFAULT] + [0x80] * (32 - len(SEQ_DEFAULT)))])]
 
@@ -254,6 +259,11 @@ LAB_RESO = ['Off'] + [str(i) for i in range(8)]
 OFFON = ['Off', 'On']
 ONOFF = ['On', 'Off']
 REC_MODES = ['Off ', 'Step', 'Live', 'Rec ']
+LM_MODES = ['Off', 'Up', 'Down', 'Ping', 'Random']
+LM_DEST = [('PCM Pos', 1), ('Ctrl XOR', 2), ('PCM XOR', 4), ('All', 7)]
+LM_RATES = [('Note', 0), ('1/1', 96), ('1/2', 48), ('1/4', 24), ('1/8', 12), ('1/8T', 8), ('1/16', 6), ('1/16T', 4),
+            ('1/32', 3), ('1/64', 1.5)]          # MIDI clocks per step ('Note': each new note)
+XMARK_V = 0x11
 
 # kinds: 0 number, 1 named list, 2 All/P1-8, 3 per-part number (live), 4 info, 5 Off/P1-8, 6 signed (63 = 0),
 # 7 P1-8, 8 number with 0 = Off, 9 sequence record, 10 chord learn, 11 folder (submenu only)
@@ -325,6 +335,12 @@ def _items():
     add('Lab PCM XOR', 'LPXOR', 255, 0 | S)
     add('Lab PCM Pos', 'LPPOS', 255, 0 | S)
     add('Lab Part', 'LPART', 8, 2 | S)
+    add('Motion', 'LMMODE', len(LM_MODES) - 1, 1 | S, names=LM_MODES)
+    add('Motion Dest', 'LMDEST', len(LM_DEST) - 1, 1 | S, names=[n for n, _ in LM_DEST])
+    add('Motion Rate', 'LMRATE', len(LM_RATES) - 1, 1 | S, names=[n for n, _ in LM_RATES])
+    add('Motion Range', 'LMRANGE', 255, 0 | S, mn=1)
+    add('Motion Step', 'LMSTEP', 64, 0 | S, mn=1)
+    add('Retrigger', 'LMRETRIG', 1, 1 | S, names=OFFON)
     add('Info', 'MIDX', 0, 4 | K_SECTION)
     return it
 
@@ -341,11 +357,12 @@ def _tables():
     return lfo, glk, spd
 
 
-def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
+def build_ic15(ic19_labels, banner=(' ROSETTA OS v11 ', ' D-110  by JSW  ')):
     """-> ([(cpu address, bytes), ...], Asm of the main code). Page 0x27: CPU 0x8000 = IC15 0x1C000."""
     syms = dict(MAGIC=MAGIC, S_MAGIC_V=S_MAGIC_V, **RAM, **STOCK, CALL19=ic19_labels['call19'],
                 RD20=ic19_labels['rd20'], NITEMS=len(ITEMS), TX_BYTE=0x1d8d, VOL_A=0xf630, VOL_B=0xf650,
-                NCHORDS=len(CHORDS), NFIX=NFIX)
+                NCHORDS=len(CHORDS), NFIX=NFIX, XMARK_V=XMARK_V,
+                XOFS=0x30 + SET['LMMODE'] - 0xf670, XEND=SET['XMARK'] + 1)
     C = Asm(CODE_ORG, syms).src(r'''
     ; ===================================================================== state
     ; init: called on every entry. Volatile state (registers, tables) after power-on, settings once.
@@ -372,6 +389,9 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             ld    r72, #0xf740
             ld    r74, #0xf800
             lcall wclr
+            ld    r72, #0xf6a0
+            ld    r74, #0xf6a4
+            lcall wclr
             ld    r70, #0xffff
             st    r70, LASTN
             st    r70, LASTN+2
@@ -397,7 +417,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             ld    r70, S_MAGIC
             cmp   r70, #S_MAGIC_V
             pop   r70                   ; (pop keeps the flags)
-            je    in_x
+            je!   in_v
             push  r70
             push  r72
             push  r74
@@ -418,6 +438,24 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             pop   r72
             pop   r70
     in_x:   ret
+    in_v:   push  r70                   ; settings from an older version: only the new ones get defaults
+            ldb   r70, XMARK
+            cmpb  r70, #XMARK_V
+            pop   r70
+            je    in_x
+            push  r70
+            push  r72
+            push  r74
+            ld    r70, #sdef+XOFS
+            ld    r72, #LMMODE
+    ix1:    ldb   r74, [r70]+
+            stb   r74, [r72]+
+            cmp   r72, #XEND
+            jne   ix1
+            pop   r74
+            pop   r72
+            pop   r70
+            ret
     wclr:   st    zero, [r72]+
             cmp   r72, r74
             jne   wclr
@@ -694,13 +732,26 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
     lb_x:   ret
 
     ; lpos: r78 ^= Lab PCM Pos when part r50 is in the lab scope. Uses r70, r76.
-    lpos:   ldb   r70, LPPOS
-            cmpb  r70, zero
-            je    lp_x
-            lcall lscope
+    lpos:   lcall lscope
             jne   lp_x
-            xorb  r78, LPPOS
+            ldb   r71, #1
+            lcall lmv
+            xorb  r70, LPPOS
+            xorb  r78, r70
     lp_x:   ret
+
+    ; lmv: r70 = Lab motion value MV when Motion is on and its Dest includes target bit r71 (1 PCM Pos,
+    ; 2 Ctrl XOR, 4 PCM XOR), else 0. Uses r70-r73.
+    lmv:    ldb   r70, LMMODE
+            cmpb  r70, zero
+            je    lv_x
+            ldbze r72, LMDEST
+            andb  r71, lmdtab[r72]
+            clrb  r70
+            cmpb  r71, zero
+            je    lv_x
+            ldb   r70, MV
+    lv_x:   ret
 
     ; wseqv: r70 = wave sequence offset of partial r54 now (0 when off or the part is not in scope). Uses r76.
     wseqv:  ldb   r70, WSPAT
@@ -840,7 +891,16 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
 
     ; ===================================================================== note-on per partial
     ; newnote: per-note random offsets and note mods (same for all partials of a note: ring pairs stay in tune)
-    newnote: lcall rnd
+    newnote: ldb  r70, LMMODE            ; Lab motion at the 'Note' rate: next value for every new note
+            cmpb  r70, zero
+            je    nn_m
+            ldb   r70, LMRATE
+            cmpb  r70, zero
+            jne   nn_m
+            lcall lscope
+            jne   nn_m
+            lcall lmnext
+    nn_m:   lcall rnd
             ldb   r74, r7e
             ldb   r70, DRIFTP
             ldb   r71, #5               ; +-31 * 128 / 32 = +-124 pitch units (~ +-36 cents at 31)
@@ -922,7 +982,9 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             stb   r72, LC[r54]
             lcall lscope                ; Lab: flip control bits of synth partials
             jne   pt_r
-            ldb   r70, LXOR
+            ldb   r71, #2
+            lcall lmv
+            xorb  r70, LXOR
             xorb  r70, 0xef80[r54]
             stb   r70, 0xef80[r54]
     pt_r:   ldbze r72, 0xef81[r54]      ; resonance base
@@ -957,7 +1019,9 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             stb   r78, 0x0c41[r54]
     pt_lx:  lcall lscope                ; Lab PCM XOR: control byte of PCM partials
             jne   pt_lev
-            ldb   r70, LPXOR
+            ldb   r71, #4
+            lcall lmv
+            xorb  r70, LPXOR
             cmpb  r70, zero
             je    pt_lev
             xorb  r70, 0xef80[r54]
@@ -1176,6 +1240,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
     lg_nx:  ldbze r52, 0xf3c0[r52]
             sjmp  lg_n
     lg_d:   ldb   int_mask, r7f
+            lcall hb_mv                 ; the held-note list follows the note
             ld    r70, r50
             shr   r70, #4
             stb   r45, LASTN[r70]
@@ -1186,6 +1251,8 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             sjmp  chord
     chord_off: ld r70, #NOTE_OFF
     chord:  st    r70, TGT
+            lcall hbuf
+            ld    r70, TGT
             clr   GLD
             cmp   r70, #NOTE_ON
             jne   ch_u
@@ -1283,6 +1350,164 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             clr   UDT
             ret
 
+    ; hbuf: held notes (part, root r45, velocity r46) for the Lab retrigger: note on (TGT) adds, note off removes.
+    ; Not while the retrigger itself plays them (RFLG). Uses r71-r76.
+    hbuf:   ldb   r71, RFLG
+            cmpb  r71, zero
+            jne! hb_x
+            ld    r76, r50
+            shr   r76, #4
+            ldbze r74, HCNT
+            shl   r74, #1
+            clr   r72
+    hb_f:   cmp   r72, r74
+            je    hb_nf
+            cmpb  r45, HN[r72]
+            jne   hb_n
+            cmpb  r76, HP[r72]
+            je    hb_fd
+    hb_n:   add   r72, #2
+            sjmp  hb_f
+    hb_fd:  cmp   TGT, #NOTE_ON
+            je    hb_x                  ; already in the list
+    hb_dl:  add   r72, #2               ; remove: the rest moves down
+            cmp   r72, r74
+            je    hb_dc
+            ldb   r75, HN[r72]
+            stb   r75, HN-2[r72]
+            ldb   r75, HV[r72]
+            stb   r75, HV-2[r72]
+            ldb   r75, HP[r72]
+            stb   r75, HP-2[r72]
+            sjmp  hb_dl
+    hb_dc:  ldb   r75, HCNT
+            decb  r75
+            stb   r75, HCNT
+            ret
+    hb_nf:  cmp   TGT, #NOTE_ON
+            jne! hb_x
+            cmp   r74, #16
+            je    hb_x                  ; full (8 notes)
+            stb   r45, HN[r72]
+            stb   r46, HV[r72]
+            stb   r76, HP[r72]
+            ldb   r75, HCNT
+            incb  r75
+            stb   r75, HCNT
+    hb_x:   ret
+    ; hb_mv: legato moved the note of part r50 from MCUR to r45: the list follows. Uses r72-r76.
+    hb_mv:  ld    r76, r50
+            shr   r76, #4
+            ldbze r74, HCNT
+            shl   r74, #1
+            clr   r72
+    hm_l:   cmp   r72, r74
+            je    hm_x
+            ldb   r75, HN[r72]
+            cmpb  r75, MCUR
+            jne   hm_n
+            cmpb  r76, HP[r72]
+            jne   hm_n
+            stb   r45, HN[r72]
+    hm_n:   add   r72, #2
+            sjmp  hm_l
+    hm_x:   ret
+
+    ; lmnext: Lab motion: next value MV (Up / Down / Ping / Random, by Motion Step, 0..Motion Range)
+    lmnext: ldb   r70, MV
+            ldb   r71, LMRANGE
+            ldb   r72, LMSTEP
+            ldb   r73, LMMODE
+            cmpb  r73, #4
+            je    mn_r
+            cmpb  r73, #2
+            je    mn_dn
+            cmpb  r73, #3
+            jne   mn_up
+            ldb   r74, MDIR             ; ping: up, then down (turns at the ends)
+            ldb   r75, r70
+            cmpb  r74, zero
+            jne   mn_pd
+            addb  r70, r72
+            jc    mn_pt
+            cmpb  r70, r71
+            jnh   mn_s
+    mn_pt:  ldb   r74, #1               ; past the top: turn, one step down
+            stb   r74, MDIR
+            ldb   r70, r75
+            subb  r70, r72
+            jc    mn_s
+            clrb  r70
+            sjmp  mn_s
+    mn_pd:  subb  r70, r72
+            jc    mn_s
+            stb   zero, MDIR            ; below 0: turn, one step up
+            ldb   r70, r75
+            addb  r70, r72
+            jc    mn_pc
+            cmpb  r70, r71
+            jnh   mn_s
+    mn_pc:  ldb   r70, r71
+            sjmp  mn_s
+    mn_up:  addb  r70, r72
+            jc    mn_0
+            cmpb  r70, r71
+            jnh   mn_s
+    mn_0:   clrb  r70
+            sjmp  mn_s
+    mn_dn:  subb  r70, r72
+            jnc   mn_t
+            cmpb  r70, r71
+            jnh   mn_s
+    mn_t:   ldb   r70, r71
+            sjmp  mn_s
+    mn_r:   lcall rnd
+            ldb   r70, r7e
+            cmpb  r71, #0xff
+            je    mn_s
+            ldbze r74, r7e
+            incb  r71
+            divub r74, r71
+            ldb   r70, r75
+    mn_s:   stb   r70, MV
+            ret
+
+    ; lmstep: motion step from the clock: next value; Retrigger: the held notes of the Lab parts play again
+    lmstep: lcall lmnext
+            ldb   r70, LMRETRIG
+            cmpb  r70, zero
+            je    lr_x
+            ldb   r70, #1
+            stb   r70, RFLG
+            stb   zero, RI
+    lr_l:   ldb   r70, RI
+            cmpb  r70, HCNT
+            jc    lr_e
+            ldbze r7a, RI
+            shl   r7a, #1
+            ldbze r50, HP[r7a]
+            shl   r50, #4
+            lcall lscope
+            jne   lr_n
+            lcall lr_ld
+            lcall chord_off
+            lcall lr_ld
+            lcall chord_on
+    lr_n:   ldb   r70, RI
+            incb  r70
+            stb   r70, RI
+            sjmp  lr_l
+    lr_e:   stb   zero, RFLG
+    lr_x:   ret
+    lr_ld:  ldbze r7a, RI               ; r45 note, r46 velocity, r50 part, r44 its channel
+            shl   r7a, #1
+            ldbze r50, HP[r7a]
+            shl   r50, #4
+            ldb   r45, HN[r7a]
+            ldb   r46, HV[r7a]
+            ldb   r44, 0xf28b[r50]
+            ret
+
     ; scalc: SCB = diatonic chord intervals on root r45 in Scale Key / Type (r7c = NFIX+1 triad, NFIX+2 7th).
     ; A note outside the scale uses the degree below it. Uses r70-r7b.
     scalc:  ldbze r70, r45
@@ -1327,6 +1552,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             cmp   r50, #0x0080
             jne   ao_l
             lcall mo_off                ; arp note still sounding on MIDI out
+            stb   zero, HCNT
             clrb  MCNT
             clrb  AN
             clrb  AH
@@ -2171,32 +2397,23 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             sjmp  mpass
     tk_x:   ret
 
-    ; lsync: synced LFO position LCC (1/64 MIDI clocks, modulo the cycle): MIDI clock when there is one (between
-    ; clocks it moves on at the measured clock period), else the arp tempo
-    lsync:  ldbze r70, LFOSYNC
-            cmpb  r70, zero
-            je! ls_x
-            shl   r70, #1
-            ld    r7a, lsctab[r70]      ; cycle length in 1/64 clocks
-            ld    r7c, TCK
-            cmpb  r7d, zero             ; MIDI start: cycle from the top
-            je    ls_0
-            clr   r70
-            st    r70, LCC
-            st    r70, LACC
-    ls_0:   cmp   CLKAGE, #240
+    ; lsync: beat position BPOS (1/64 MIDI clocks, free running): MIDI clock when there is one (between clocks
+    ; it moves on at the measured clock period), else the arp tempo. Its movement this tick drives the synced LFO
+    ; (LCC, modulo the cycle) and the Lab motion clock (MPH).
+    lsync:  ld    r7c, TCK
+            ld    r70, BPOS
+            cmp   CLKAGE, #240
             jc    ls_i
-            ld    r70, LCC
             cmpb  r7c, zero
             je    ls_m
             andb  r70, #0xc0            ; MIDI clocks: to the clock boundary
             ldbze r72, r7c
             shl   r72, #6
             add   r70, r72
-            sjmp  ls_w
+            sjmp  ls_d
     ls_m:   ldbze r72, EPC              ; between clocks: TN * 64 / clock period, up to the next clock
             cmpb  r72, zero
-            je! ls_x
+            je    ls_d
             ld    r74, TN
             shl   r74, #6
             divub r74, r72
@@ -2208,23 +2425,70 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             ldb   r72, #0x3f
     ls_f:   andb  r70, #0xc0
             orb   r70, r72
-            sjmp  ls_w
-    ls_i:   ldbze r70, ARPBPM           ; internal: TN * BPM * 64 / 1200 (+ remainder LACC)
-            add   r70, #40
-            shl   r70, #6
-            ld    r72, TN
-            mulu  r74, r70, r72
+            sjmp  ls_d
+    ls_i:   ldbze r72, ARPBPM           ; internal: TN * BPM * 64 / 1200 (+ remainder LACC)
+            add   r72, #40
+            shl   r72, #6
+            ld    r7a, TN
+            mulu  r74, r72, r7a
             add   r74, LACC
             addc  r76, zero
-            ld    r70, #1200
-            divu  r74, r70
+            ld    r72, #1200
+            divu  r74, r72
             st    r76, LACC
-            ld    r70, LCC
             add   r70, r74
-    ls_w:   ld    r74, r70              ; modulo the cycle
+    ls_d:   ld    r7e, r70
+            sub   r7e, BPOS             ; movement this tick
+            st    r70, BPOS
+            cmpb  r7d, zero             ; MIDI start: the first clock after it = position 0 (as the arp)
+            je    ls_1
+            andb  r70, #0xc0
+            st    r70, BPOS
+            ldbze r7e, r7c
+            shl   r7e, #6               ; this tick's clocks only
+            clr   r72
+            ldbze r70, LFOSYNC
+            shl   r70, #1
+            je    ls_s1
+            ld    r72, lsctab[r70]
+            sub   r72, #64
+    ls_s1:  st    r72, LCC
+            clr   r72
+            ldbze r70, LMRATE
+            shl   r70, #1
+            je    ls_s2
+            ld    r72, lmrtab[r70]
+            sub   r72, #64
+    ls_s2:  st    r72, MPH
+    ls_1:   ldbze r70, LFOSYNC
+            cmpb  r70, zero
+            je    ls_2
+            shl   r70, #1
+            ld    r7a, lsctab[r70]
+            ld    r74, LCC
+            add   r74, r7e
             clr   r76
             divu  r74, r7a
             st    r76, LCC
+    ls_2:   ldb   r70, LMMODE           ; Lab motion clock
+            cmpb  r70, zero
+            je    ls_x
+            ldbze r70, LMRATE
+            cmpb  r70, zero
+            je    ls_x                  ; 'Note': at note on
+            shl   r70, #1
+            ld    r7a, lmrtab[r70]
+            ld    r74, MPH
+            add   r74, r7e
+            cmp   r74, r7a
+            jnc   ls_3
+            sub   r74, r7a
+            cmp   r74, r7a
+            jnc   ls_4
+            clr   r74
+    ls_4:   st    r74, MPH
+            ljmp  lmstep
+    ls_3:   st    r74, MPH
     ls_x:   ret
 
     ; pass (~8 ms): LFO (free or synced), then glide / wave sequence / mod matrix / vintage on every partial of
@@ -2721,7 +2985,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             lcall hexd
             ld    r70, #0x7620          ; ' v'
             lcall put2
-            ld    r70, #0x3031          ; '10'
+            ld    r70, #0x3131          ; '11'
             lcall put2
             sjmp  show
     d_on:   cmpb  r7e, zero             ; number, 0 = Off
@@ -2867,6 +3131,16 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
     blocks = ''.join(' dw %d, %d\n' % (st, en) for st, en, _ in SETTINGS) + ' dw 0\n'
     ban = (banner[0].ljust(16)[:16] + banner[1].ljust(16)[:16]).encode()
     # IC15 page 0x27: code 0x8000-0xAFFF, jump table at 0xB000 (fixed), data 0xB020-0xBFFF
+    # tables in the code area (0x8000-0xAFFF), then the jump table at 0xB000 (fixed), menu data after it
+    C.src('even\nsrctab:\n dw 0, s_mw, s_at, s_vel, s_key, s_lfo, s_sh, s_cca, s_ccb\n' +
+          'dsttab:\n dw d_cut, d_pit, d_wav, d_lev, d_res\n' +
+          'arpjt:\n dw nx_up, nx_dn, nx_ud, nx_rnd, nx_pl, nx_sq\n' +
+          'lsctab:\n' + lsc + 'sblk:\n' + blocks +
+          'lmrtab:\n' + dw([int(c * 64) for _, c in LM_RATES]) +
+          'lfotab:\n' + dw(lfo) + 'wsp:\n' + wsp + 'lmdtab:\n' + db([m for _, m in LM_DEST]) +
+          'glktab:\n' + db(glk) + 'spdtab:\n' + db(spd) +
+          'rates:\n' + rates + 'chiv:\n' + chiv + 'sctab:\n' + sct + 'ntab:\n' + ntab + wsteps +
+          'sdef:\n' + db(SET_DEFAULTS))
     C.src('''
             pad   0xb000
             dw    MAGIC
@@ -2883,18 +3157,11 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
             ret
             ret
     ''')
-    C.src('even\nitems:\n' + items +
-          'even\nsrctab:\n dw 0, s_mw, s_at, s_vel, s_key, s_lfo, s_sh, s_cca, s_ccb\n' +
-          'dsttab:\n dw d_cut, d_pit, d_wav, d_lev, d_res\n' +
-          'arpjt:\n dw nx_up, nx_dn, nx_ud, nx_rnd, nx_pl, nx_sq\n' +
-          'lsctab:\n' + lsc + 'sblk:\n' + blocks +
-          'lfotab:\n' + dw(lfo) + 'wsp:\n' + wsp + 'glktab:\n' + db(glk) + 'spdtab:\n' + db(spd) +
-          'rates:\n' + rates + 'chiv:\n' + chiv + 'sctab:\n' + sct + 'ntab:\n' + ntab + wsteps + named_src +
+    C.src('even\nitems:\n' + items + named_src +
           'inftxt:\n db 77, 101, 109, 32\n' +
           'rectxt:\n' + db(''.join(REC_MODES).encode()) +
           'lrntx0:\n' + db(b'Bank+ = learn\0') + 'lrntx1:\n' + db(b'Play a chord\0') +
           'foldtx:\n' + db(b'Edit = open\0') +
-          'sdef:\n' + db(SET_DEFAULTS) +
           'bantxt:\n db 0\n%s db 0\n' % db(ban))
     img = C.assemble()
     assert C.org + len(img) <= 0xc000, hex(C.org + len(img))
@@ -2905,6 +3172,6 @@ if __name__ == '__main__':
     p, lab = build_ic19()
     for a, b in p: print('IC19 0x%04x %3d B' % (a, len(b)))
     segs, C = build_ic15(lab)
-    code_end = max(v for v in C.labels.values() if v < 0xb000)
+    code_end = C.labels['sdef'] + len(SET_DEFAULTS)
     print('IC15 code 0x8000-0x%04x (%d B free), data 0xb020-0x%04x (%d B free)' % (
         code_end, 0xb000 - code_end, 0xb000 + len(segs[1][1]), 0x1000 - len(segs[1][1])))

@@ -1,7 +1,7 @@
-"""Runs the Rosetta hooks (rosetta.py, v9) on your own patched IC19 + IC15 in mcs96_sim: menu and submenus, settings,
+"""Runs the Rosetta hooks (rosetta.py, v11) on your own patched IC19 + IC15 in mcs96_sim: menu and submenus, settings,
 chord / unison / mono / legato / glide, chord learn, scale chords, arpeggiator (internal tempo and MIDI clock, groove,
 recorded sequence, MIDI out), mod matrix, synced LFO, wave sequence, vintage, per-note drift / random cutoff / wave,
-lab bits, and the fallback with a stock IC15.
+lab bits and lab motion, and the fallback with a stock IC15.
 
   python test_rosetta.py ctrl/ic19_ros.bin my_ic15_ros.bin [my_stock_ic15.bin]
 """
@@ -102,7 +102,7 @@ check('volatile state reset (magic, LASTN, MCUR)', s.ld(S['R_MAGIC'], 2) == 0xa7
       g(s, 'MCUR') == 0xff and gw(s, 'PB', 6) == 0)
 check('bank latch back to the caller page', s.bank == 0x11 and s.ld(0xb7, 1) == 0x11)
 keys(s, 0x0d)
-check('Group- wraps to Info: %r' % s.lcd[-1], s.lcd[-1] == 'Info            Mem oooo P02 v10')
+check('Group- wraps to Info: %r' % s.lcd[-1], s.lcd[-1] == 'Info            Mem oooo P02 v11')
 keys(s, 0x09)
 check('Edit: next section (Wave): %r' % s.lcd[-1][:16], s.lcd[-1].startswith('Wave Scan'))
 keys(s, 0x09)
@@ -538,7 +538,7 @@ check('... Vintage Part P1: part 3 left alone', s.ld(0xef40 + 6, 2) == 0x5000)
 s = new(ic15); keys(s, 0xff)
 put(s, 'LFOSYNC', 5)                                                   # 1/4 note = 24 clocks
 rt(s, 0xfa)
-for _ in range(12):
+for _ in range(13):                                                    # MIDI: the first clock after start = 0
     rt(s, 0xf8); tick(s, 4)
 ph12 = s.ld(S['LFOP'], 2)
 for _ in range(12):
@@ -576,6 +576,88 @@ put(s, 'LPART', 1); s.st(0xef80 + 6, 0x24, 1); s.st(0xef81 + 6, 0x4b, 1)
 s.st(0x56, BLK, 2); s.st(S['LASTSLOT'], 0xff, 1); part_hook(0x06)
 check('Lab Part P1: part 3 untouched (0x%02x 0x%02x)' % (s.ld(0x0d00 + 6, 1), s.ld(0x0d01 + 6, 1)),
       s.ld(0x0d00 + 6, 1) == 0x24 and s.ld(0x0d01 + 6, 1) == 0x4b)
+
+
+# ---------------------------------------------------------------- v11: Lab motion
+s = new(ic15); keys(s, 0xff)
+check('Lab motion defaults: Off, PCM Pos, 1/16, range 15, step 1, retrigger On',
+      [g(s, k) for k in ('LMMODE', 'LMDEST', 'LMRATE', 'LMRANGE', 'LMSTEP', 'LMRETRIG', 'XMARK')] == [0, 0, 6, 15, 1, 1, 0x11])
+put(s, 'DRIFTP', 9); put(s, 'XMARK', 0); put(s, 'LMRANGE', 0)                     # settings from v10
+s2 = new(ic15, s.m[0xc000:]); s2.st(0x1a, 0, 2); keys(s2, 0xff)
+check('upgrade from v9/v10 settings: motion defaults in, the rest kept', g(s2, 'LMRANGE') == 15 and
+      g(s2, 'XMARK') == 0x11 and g(s2, 'DRIFTP') == 9)
+s = new(ic15); keys(s, 0xff); s.calls.clear()
+put(s, 'LMMODE', 1)                                                                  # Up, 1/16 at 120 BPM = 60 ticks
+note(s, True, 60); s.calls.clear()
+mv = []
+for _ in range(5):
+    for _ in range(60): tick(s)
+    mv.append(g(s, 'MV'))
+check('Motion Up 1/16: values %s' % mv, mv == [1, 2, 3, 4, 5])
+check('... Retrigger: the held note plays again each step: %s' % evs(s)[:4],
+      evs(s) == [('off', 60), ('on', 60)] * 5)
+note(s, False, 60); s.calls.clear()
+for _ in range(120): tick(s)
+check('... key up: nothing more', evs(s) == [] and g(s, 'HCNT') == 0)
+put(s, 'LMRETRIG', 0); note(s, True, 62); s.calls.clear(); mv0 = g(s, 'MV')
+for _ in range(120): tick(s)
+check('Retrigger Off: the value moves (%d -> %d), the note is left alone' % (mv0, g(s, 'MV')),
+      evs(s) == [] and g(s, 'MV') == mv0 + 2)
+note(s, False, 62)
+put(s, 'LMMODE', 3); put(s, 'LMRANGE', 3); s.st(S['MV'], 0, 1); s.st(S['MDIR'], 0, 1)
+mv = []
+for _ in range(8):
+    for _ in range(60): tick(s)
+    mv.append(g(s, 'MV'))
+check('Ping, range 3: %s' % mv, mv == [1, 2, 3, 2, 1, 0, 1, 2])
+put(s, 'LMMODE', 2); put(s, 'LMSTEP', 2); put(s, 'LMRANGE', 6); s.st(S['MV'], 1, 1)
+mv = []
+for _ in range(4):
+    for _ in range(60): tick(s)
+    mv.append(g(s, 'MV'))
+check('Down, step 2, range 6: %s' % mv, mv == [6, 4, 2, 0])
+put(s, 'LMMODE', 4); put(s, 'LMRANGE', 9)
+mv = set()
+for _ in range(60 * 40): tick(s); mv.add(g(s, 'MV'))
+check('Random, range 9: %s' % sorted(mv), mv <= set(range(10)) and len(mv) > 5)
+put(s, 'LMMODE', 1); put(s, 'LMSTEP', 1); put(s, 'LMRANGE', 15); put(s, 'LMRETRIG', 1); put(s, 'LPART', 1)
+note(s, True, 60); s.calls.clear()
+for _ in range(120): tick(s)
+check('Lab Part P1: part 3 not retriggered', evs(s) == [])
+note(s, False, 60); put(s, 'LPART', 0)
+# legato: the retrigger follows the moved note
+put(s, 'MONOP', 3); put(s, 'LEGATO', 1)
+note(s, True, 60); note(s, True, 64); s.calls.clear()
+for _ in range(60): tick(s)
+check('mono legato: the retrigger plays the current note: %s' % evs(s), evs(s) == [('off', 64), ('on', 64)])
+note(s, False, 64); note(s, False, 60); put(s, 'MONOP', 0); put(s, 'LEGATO', 0)
+# chord + unison: one entry, all voices again
+put(s, 'CHORD', 4); note(s, True, 60); s.calls.clear()
+for _ in range(60): tick(s)
+check('chord: the retrigger plays the whole chord: %s' % evs(s),
+      evs(s) == [('off', 60), ('off', 64), ('off', 67), ('on', 60), ('on', 64), ('on', 67)])
+note(s, False, 60); put(s, 'CHORD', 0)
+# MIDI clock: steps on the first clock after start, then every 6
+s.st(S['MV'], 0, 1); note(s, True, 60)
+rt(s, 0xfa); at = []
+for i in range(13):
+    rt(s, 0xf8); tick(s, 4)
+    at.append(g(s, 'MV'))
+check('Motion on MIDI clock: steps at clocks 1, 7, 13: %s' % at, at == [1] * 6 + [2] * 6 + [3])
+note(s, False, 60)
+# the value lands in the LA32: PCM position, Ctrl XOR (Note rate: one new value per note)
+for p, blk, ef80 in ((0x06, BLK, 0x24), (0x0a, BLK + 0x74, 0xc1)):
+    s.st(0xee80 + p, blk, 2); s.st(0xef80 + p, ef80, 1); s.st(0xf1c0 + p, 0x80, 1); s.st(0xef40 + p, 0x5000, 2)
+    s.st(0xf100 + p, 0xffff, 2); s.st(0xef81 + p, 0x4b, 1); s.st(0xf180 + p, 0x20, 1)
+s.st(BLK + 0x74 + 5, 10, 1); s.st(BLK + 0x74 + 4, 0, 1)
+s.st(0x08, 0x7f, 1); s.st(0x50, 0x20, 2); s.st(0x52, 3, 2); s.st(0x45, 60, 1); s.st(0x46, 100, 1)
+put(s, 'LMRATE', 0); put(s, 'LMDEST', 3); put(s, 'LPPOS', 0x10); s.st(S['MV'], 4, 1)
+s.st(0x56, BLK + 0x74, 2); s.st(S['LASTSLOT'], 0xff, 1); part_hook(0x0a)
+check('Motion Note rate: new note -> MV 5; PCM pos 0x80 ^ 0x10 ^ 5 = 0x%02x' % s.ld(0x0c41 + 0x0a, 1),
+      g(s, 'MV') == 5 and s.ld(0x0c41 + 0x0a, 1) == 0x80 ^ 0x10 ^ 5)
+s.st(0x56, BLK, 2); s.st(S['LASTSLOT'], 0xff, 1); part_hook(0x06)
+check('... next note MV 6, Ctrl XOR 6 on the synth partial: 0x%02x' % s.ld(0x0d00 + 6, 1),
+      g(s, 'MV') == 6 and s.ld(0x0d00 + 6, 1) == 0x24 ^ 6)
 
 odd = sorted({'%04x->%04x' % x for t in sims for x in t.odd})
 check('no word access at an odd address %s' % odd, not odd)
