@@ -16,7 +16,7 @@ flow tracer), `test_mcs96_dis.py` (decoder vs MAME's i8x9x disassembler on every
   `0x2000-0x7FFF` is ~1.5 KB, almost all strings and tables.
 - Next: pick the first small patch and test it in an emulator before burning an EPROM. Candidates, smallest first:
   1. A text change (version string `0x2206`, a menu string through the window table at IC19 `0x0000`) to prove the
-     build/checksum/burn path. Check first whether the OS checksums IC19 (no checksum routine found yet).
+     build/checksum/burn path. **Built, not yet burned:** `patch_ic19.py --banner` (see "Stage 3: first patch").
   2. A UI tweak through a menu entry: every key binding is one 4/6-byte entry (see "UI menus").
   3. A SysEx tweak: the address map is one 10-entry table (`0x470C`/`0x4718`, see "MIDI input").
   The emulator: MAME's `d110` driver runs this ROM (no sound: MAME has no LA32), enough to check UI and SysEx.
@@ -193,3 +193,19 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
 4. LA32 register meanings (per bank) and the `0x0D40` groups; `0x0280`.
 5. Whether `F0 00 ...` really feeds the debug monitor over MIDI.
 6. Whether the OS checksums IC19 (matters for the first patch).
+
+## Stage 3: first patch (2026-10-07)
+- **No ROM checksum.** The only loops that add up bytes read through a pointer are the SysEx checksums: `0x4518`
+  (address bytes from `0xF6A5`) and `0x4C27` (outgoing Roland message up to `F7`, `negb`/`and 0x7F`). Nothing sums
+  `0x1000-0x7FFF`, and test mode (`0x8A00`) has no ROM test. So a patched IC19 needs no checksum fix-up.
+- **Version screen.** Boot code `0x2264` reads the SC1 button row (`0x021C`). On `0xEA` it prints the string at
+  `0x2205` (api_208a -> `0x1C02`) and waits about a second (`0x228D`); on `0xFC` it enters test mode (`0x8A00`).
+  Which three buttons give `0xEA` is not checked on the unit yet. String format for `0x1C02`: one LCD DDRAM address
+  byte (`0x00` = line 1), then characters to column 16, then line 2 (`0x40`) until a `00` byte. v1.10 has 32 characters
+  at `0x2206-0x2225` and `00` at `0x2226`.
+- `patch_ic19.py ctrl/ic19.bin --banner "LINE1" "LINE2"` checks the v1.10 SHA-1, writes the two 16-character lines
+  and saves `ctrl/ic19_patched.bin`. Checked: 20 bytes differ, all within `0x2206-0x2225`, and the regenerated listing
+  differs only in that string.
+- Hardware test: burn to a 27C256-class EPROM (check the IC19 part on the board first), hold the version combo at
+  power-on, read the LCD. Keep the original IC19.
+
