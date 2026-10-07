@@ -157,12 +157,13 @@ Studio (or your plain IC15 dump) in `roms/IC15 (bin from Rosetta Studio here)/`,
 **v8 on hardware (user test):** boots, the Info line reads `Mem oooo P01 v8` (all RAM spots ok), the Lab items work
 (see Lab). The rest of v8 (arp, unison, glide, LFO, wave seq, saved settings) is not reported yet.
 **v9 on hardware:** user: "it all looks great and seems to work well" (no feature-by-feature report yet).
-**v10 (menu layout, banner, Mod / Lab On-Off) and v11 (Lab Motion) are simulator-only.** Both keep the v9 settings
-and sequence (v11 adds its own defaults).
+**v10 (menu layout, banner, Mod / Lab On-Off), v11 (Lab Motion) and v12 (Seq Record live counter + Done) are
+simulator-only.** They keep the v9 settings and sequence (v11 adds its own defaults). v11 backup: git tag
+`rosetta-v11`.
 v6 plus new features whose code lives in IC15 page 0x27: code at IC15 0x1C000-0x1EFFF (the end of the demo songs,
 unused once the Quick mod has replaced the demo menu), the jump table at 0x1F000 and data after it (0x1F020-0x1FFFF).
 IC19 gets only small hooks. With a stock IC15 the hooks find no magic word and the unit behaves exactly like v6.
-IC19 is the same in v8 to v11 (MD5 `08ebae6e...`): later versions only need IC15 reburned.
+IC19 is the same in v8 to v12 (MD5 `08ebae6e...`): later versions only need IC15 reburned.
 - **Rosetta menu:** on the Quick screen press **Edit**. Group +/- = item, Bank +/- = value -/+1, Number +/- = -/+10,
   Part = current part (P1-P8, also on the Quick screen), Exit = back. One line per feature; items marked `>` have a
   **submenu** with all their settings: Edit opens it, Group +/- moves inside it, Exit (or Edit) goes back. Top level:
@@ -192,7 +193,8 @@ IC19 is the same in v8 to v11 (MD5 `08ebae6e...`): later versions only need IC15
       transposes it (the first recorded note = that key). A demo pattern is there from the start.
       Seq Record: Bank+ = Step record (each key = one step; Number+ = rest, Number- = tie), Bank+ again before the
       first key = Live record (the first key starts the arp clock, keys go to the nearest step, a held key = tie),
-      Bank- = stop (the steps so far become the pattern). The display shows `Step 05/32`.
+      Bank- = stop (the steps so far become the pattern). The display counts live while you play (`Step 05/32`),
+      and shows `Done 05/32` when the recording has stopped (Bank- or 32 steps full).
     - **MIDI Out:** arp notes also go out of MIDI OUT on the arp part's channel (Only: not played inside).
   - **Lab > (experiment, On / Off):** Lab Reso High (bits 5-7 of the LA32 resonance byte that Roland ties to the reso value),
     Lab Reso Low (bits 0-4, including 0 and 31 that Roland never uses), Lab Ctrl XOR (0-255: flips the control byte

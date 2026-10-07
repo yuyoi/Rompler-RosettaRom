@@ -22,7 +22,7 @@ Settings live in battery-backed RAM (0xF600-0xF62F, 0xF670-0xF69F, own magic wor
 """
 from mcs96_asm import Asm
 
-VERSION = 11                # shown on the banner and the Info line
+VERSION = 12               # shown on the banner and the Info line
 MAGIC = 0x5a1c
 S_MAGIC_V = 0x8a5f          # settings layout v9 (change it when the layout changes: old settings -> defaults)
 
@@ -38,7 +38,7 @@ TAB = dict(PB=0xf500, GL=0xf540, CB=0xf580, WB=0xf580, LB=0xf581, RB=0xf5c0, OFS
 # volatile RAM
 VOL = dict(LASTN=0xf7c0, MSTK=0xf7c8, ABUF=0xf7d0, MNC=0xf7dc, MNP=0xf7de, MNW=0xf7e0, MNL=0xf7e2, MNR=0xf7e4,
            AT=0xf7e6, CCA=0xf7e7, CCB=0xf7e8, AD=0xf7e9, ACUR=0xf7ea, AV=0xf7eb, ALB=0xf7ec, ACLK=0xf7ed,
-           AI=0xf7ee, AO=0xf7ef, TN=0xf7f2, TCK=0xf7f4, SCB=0xf7f6, LBUF=0xf7fa,     # 0xF7F0 = Info RAM test byte
+           AI=0xf7ee, AO=0xf7ef, RDRW=0xf7f1, TN=0xf7f2, TCK=0xf7f4, SCB=0xf7f6, LBUF=0xf7fa,     # 0xF7F0 = Info RAM test byte
            CIVP=0xf630, RTI=0xf632, RTT=0xf634, LCC=0xf636, LACC=0xf638, VPH=0xf63a, SLEN=0xf63c, MPAR=0xf63e,
            RTN=0xf63f, ARN=0xf640, AVL=0xf641, ECNT=0xf642, ASC=0xf643, HJ=0xf644, LARM=0xf645, LCNT=0xf646,
            LHC=0xf647, RECM=0xf648, RPOS=0xf649, LCUR=0xf64a, LNX=0xf64b, EPC=0xf64c, RRT=0xf64d, MON=0xf64e,
@@ -259,7 +259,7 @@ LFO_SYNC = [('Off', 0), ('4 Bars', 384), ('2 Bars', 192), ('1 Bar', 96), ('1/2',
 LAB_RESO = ['Off'] + [str(i) for i in range(8)]
 OFFON = ['Off', 'On']
 ONOFF = ['On', 'Off']
-REC_MODES = ['Off ', 'Step', 'Live', 'Rec ']
+REC_MODES = ['Off ', 'Step', 'Live', 'Rec ', 'Done']
 LM_MODES = ['Off', 'Up', 'Down', 'Ping', 'Random']
 LM_DEST = [('PCM Pos', 1), ('Ctrl XOR', 2), ('PCM XOR', 4), ('All', 7)]
 LM_RATES = [('Note', 0), ('1/1', 96), ('1/2', 48), ('1/4', 24), ('1/8', 12), ('1/8T', 8), ('1/16', 6), ('1/16T', 4),
@@ -362,7 +362,7 @@ def build_ic15(ic19_labels, banner=None):
     """-> ([(cpu address, bytes), ...], Asm of the main code). Page 0x27: CPU 0x8000 = IC15 0x1C000."""
     banner = banner or (' ROSETTA OS v%d ' % VERSION, ' D-110  by JSW  ')
     syms = dict(MAGIC=MAGIC, S_MAGIC_V=S_MAGIC_V, **RAM, **STOCK, CALL19=ic19_labels['call19'],
-                RD20=ic19_labels['rd20'], NITEMS=len(ITEMS), TX_BYTE=0x1d8d, VOL_A=0xf630, VOL_B=0xf650,
+                RD20=ic19_labels['rd20'], ROSUI=ic19_labels['ros_ui'], NITEMS=len(ITEMS), TX_BYTE=0x1d8d, VOL_A=0xf630, VOL_B=0xf650,
                 NCHORDS=len(CHORDS), NFIX=NFIX, XMARK_V=XMARK_V,
                 XOFS=0x30 + SET['LMMODE'] - 0xf670, XEND=SET['XMARK'] + 1,
                 VTXT=int.from_bytes(('%2d' % VERSION).encode(), 'little'))
@@ -2213,6 +2213,7 @@ def build_ic15(ic19_labels, banner=None):
             stb   zero, RPOS
             ldb   r70, #3
             stb   r70, RECM
+            stb   r70, RDRW             ; 'Live' -> 'Rec ' on the screen
             clr   ARPT
             clr   ASTP
             stb   zero, ACLK
@@ -2241,19 +2242,23 @@ def build_ic15(ic19_labels, banner=None):
             lcall clampw
             ldb   r70, r72
             ret
-    ; rput: step byte r70 at RPOS, next position; at 32 the recording ends. Uses r70, r72.
+    ; rput: step byte r70 at RPOS, next position; at 32 the recording ends. Uses r70, r72. The tick redraws
+    ; the menu (RDRW).
     rput:   ldbze r72, RPOS
             stb   r70, SEQ[r72]
             incb  r72
             stb   r72, RPOS
+            stb   r72, RDRW
             cmpb  r72, #32
             jne   rp_x
-    rec_end: ldb  r70, RPOS             ; stop recording: steps so far = the new length
+    rec_end: ldb  r70, RPOS             ; stop recording: steps so far = the new length, RPOS ff = 'Done'
+            stb   zero, RPOS
             cmpb  r70, zero
             je    re1
             stb   r70, SEQLEN
+            ldb   r70, #0xff
+            stb   r70, RPOS
     re1:    stb   zero, RECM
-            stb   zero, RPOS
             ldb   r70, #0xff
             stb   r70, LCUR
             stb   r70, LNX
@@ -2392,7 +2397,14 @@ def build_ic15(ic19_labels, banner=None):
             add   CLKAGE, r7e
     tk_s:   lcall lsync
             lcall arp_tick
-            ldb   r7e, TN
+            ldb   r70, RDRW             ; a step was recorded: redraw if the Rosetta menu is on screen
+            cmpb  r70, zero
+            je    tk_d
+            stb   zero, RDRW
+            cmp   rb4, #ROSUI
+            jne   tk_d
+            lcall draw
+    tk_d:   ldb   r7e, TN
             addb  TDIV, r7e
             cmpb  TDIV, #4
             jnc   tk_x
@@ -3000,8 +3012,14 @@ def build_ic15(ic19_labels, banner=None):
             lcall put2
             stb   r71, [r76]            ; 'f'
             sjmp  show
-    d_rec:  ldbze r70, RECM             ; 'Step 05/32' (Off: the length)
-            shl   r70, #2
+    d_rec:  ldbze r70, RECM             ; 'Step 05/32' (Off / Done: the length)
+            cmpb  r70, zero
+            jne   d_r0
+            ldb   r72, RPOS
+            cmpb  r72, #0xff
+            jne   d_r0
+            ldb   r70, #4               ; 'Done'
+    d_r0:   shl   r70, #2
             add   r70, #rectxt
             ldb   r7e, #4
     d_r1:   ldb   r72, [r70]+

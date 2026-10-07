@@ -1,4 +1,4 @@
-"""Runs the Rosetta hooks (rosetta.py, v11) on your own patched IC19 + IC15 in mcs96_sim: menu and submenus, settings,
+"""Runs the Rosetta hooks (rosetta.py, v12) on your own patched IC19 + IC15 in mcs96_sim: menu and submenus, settings,
 chord / unison / mono / legato / glide, chord learn, scale chords, arpeggiator (internal tempo and MIDI clock, groove,
 recorded sequence, MIDI out), mod matrix, synced LFO, wave sequence, vintage, per-note drift / random cutoff / wave,
 lab bits and lab motion, and the fallback with a stock IC15.
@@ -102,7 +102,7 @@ check('volatile state reset (magic, LASTN, MCUR)', s.ld(S['R_MAGIC'], 2) == 0xa7
       g(s, 'MCUR') == 0xff and gw(s, 'PB', 6) == 0)
 check('bank latch back to the caller page', s.bank == 0x11 and s.ld(0xb7, 1) == 0x11)
 keys(s, 0x0d)
-check('Group- wraps to Info: %r' % s.lcd[-1], s.lcd[-1] == 'Info            Mem oooo P02 v11')
+check('Group- wraps to Info: %r' % s.lcd[-1], s.lcd[-1] == 'Info            Mem oooo P02 v12')
 keys(s, 0x09)
 check('Edit: next section (Wave): %r' % s.lcd[-1][:16], s.lcd[-1].startswith('Wave Scan'))
 keys(s, 0x09)
@@ -468,13 +468,20 @@ check('... tied first note: on %s, off %s (gate 50%% + 1 tied step)' % (ons_at[:
 s = arp_setup(); goto(s, 'Seq Record'); keys(s, 0x06)
 check('Seq Record: Bank+ -> Step: %r' % s.lcd[-1][16:], s.lcd[-1][16:26] == 'Step 00/32' and g(s, 'RECM') == 1)
 s.calls.clear(); note(s, True, 60); note(s, False, 60); note(s, True, 64); note(s, False, 64)
-keys(s, 0x07, 0x0f); note(s, True, 67); note(s, False, 67)
-check('... keys sound as played while recording: %s' % ons(s), ons(s) == [60, 64, 67])
+keys(s, 0x07, 0x0f)
 check('... display: %r' % s.lcd[-1][16:], s.lcd[-1][16:26] == 'Step 04/32')
+s.st(0xb4, lab['ros_ui'], 2); n0 = len(s.lcd)                        # the Rosetta menu is on screen
+note(s, True, 67); note(s, False, 67); tick(s)
+check('... keys sound as played while recording: %s' % ons(s), ons(s) == [60, 64, 67])
+check('... live: the tick redraws after a key: %r' % s.lcd[-1][16:], len(s.lcd) == n0 + 1 and s.lcd[-1][16:26] == 'Step 05/32')
+tick(s)
+check('... no step, no redraw', len(s.lcd) == n0 + 1)
+s.st(0xb4, 0x1234, 2); put(s, 'RDRW', 1); tick(s)
+check('... other screen: no redraw', len(s.lcd) == n0 + 1)
 keys(s, 0x0e)
 check('... Bank- stops: length 5, steps %s' % [hex(g(s, 'SEQ', i)) for i in range(5)],
       g(s, 'SEQLEN') == 5 and [g(s, 'SEQ', i) for i in range(5)] == [64, 68, 0x80, 0x81, 71] and g(s, 'RECM') == 0)
-check('... display Off + length: %r' % s.lcd[-1][16:], s.lcd[-1][16:26] == 'Off  05/32')
+check('... display Done + length: %r' % s.lcd[-1][16:], s.lcd[-1][16:26] == 'Done 05/32')
 put(s, 'ARPM', 6); s.calls.clear(); note(s, True, 62); steps(s, 10)
 check('... plays back from key 62: %s' % ons(s), ons(s) == [62, 66, 69, 62, 66, 69])
 # live record
@@ -490,6 +497,12 @@ tick(s, 60)
 keys(s, 0x0e)
 seq = [g(s, 'SEQ', i) for i in range(g(s, 'SEQLEN'))]
 check('Live record (late key -> next step, held -> tie): %s' % [hex(b) for b in seq], seq[:6] == [64, 0x80, 0x80, 68, 0x81, 0x80])
+s = arp_setup(); goto(s, 'Seq Record'); s.st(0xb4, lab['ros_ui'], 2); keys(s, 0x06)
+for i in range(32): keys(s, 0x07)
+check('32 steps: recording ends by itself, the screen shows %r' % s.lcd[-1][16:26],
+      s.lcd[-1][16:26] == 'Done 32/32' and g(s, 'RECM') == 0 and g(s, 'SEQLEN') == 32)
+keys(s, 0x06)
+check('... Bank+ records again: %r' % s.lcd[-1][16:26], s.lcd[-1][16:26] == 'Step 00/32')
 # chord learn
 s = new(ic15); keys(s, 0xff); s.calls.clear()
 goto(s, 'Chord Learn')
