@@ -16,7 +16,7 @@ flow tracer), `test_mcs96_dis.py` (decoder vs MAME's i8x9x disassembler on every
   `0x2000-0x7FFF` is ~1.5 KB, almost all strings and tables.
 - Next: pick the first small patch and test it in an emulator before burning an EPROM. Candidates, smallest first:
   1. A text change (version string `0x2206`, a menu string through the window table at IC19 `0x0000`) to prove the
-     build/checksum/burn path. **Built, not yet burned:** `patch_ic19.py --banner` (see "Stage 3: first patch").
+     build/checksum/burn path. **Works on hardware (2026-10-07):** `patch_ic19.py --banner` (see "Stage 3: first patch").
   2. A UI tweak through a menu entry: every key binding is one 4/6-byte entry (see "UI menus").
   3. A SysEx tweak: the address map is one 10-entry table (`0x470C`/`0x4718`, see "MIDI input").
   The emulator: MAME's `d110` driver runs this ROM (no sound: MAME has no LA32), enough to check UI and SysEx.
@@ -200,12 +200,13 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   `0x1000-0x7FFF`, and test mode (`0x8A00`) has no ROM test. So a patched IC19 needs no checksum fix-up.
 - **Version screen.** Boot code `0x2264` reads the SC1 button row (`0x021C`). On `0xEA` it prints the string at
   `0x2205` (api_208a -> `0x1C02`) then `0x228D` runs a delay loop and waits until api_208e returns 0; on `0xFC` it enters test mode (`0x8A00`).
-  Which three buttons give `0xEA` is not checked on the unit yet. String format for `0x1C02`: one LCD DDRAM address
+  Combo confirmed on the unit: hold **Enter + Part - + Bank -** at power-on (`0xEA` = SC1 bits 4, 2, 0 low; keys read active-low). String format for `0x1C02`: one LCD DDRAM address
   byte (`0x00` = line 1), then characters to column 16, then line 2 (`0x40`) until a `00` byte. v1.10 has 32 characters
   at `0x2206-0x2225` and `00` at `0x2226`.
 - `patch_ic19.py ctrl/ic19.bin --banner "LINE1" "LINE2"` checks the v1.10 SHA-1, writes the two 16-character lines
   and saves `ctrl/ic19_patched.bin`. Checked: 20 bytes differ, all within `0x2206-0x2225`, and the regenerated listing
   differs only in that string.
-- Hardware test: burn to a 27C256-class EPROM (check the IC19 part on the board first), hold the version combo at
-  power-on, read the LCD. Keep the original IC19.
+- **Hardware test passed (2026-10-07).** Burned on a T48 to an ST M27C256B (UV EPROM) in place of the stock Mitsubishi
+  M5M27C256K. The unit boots normally, and the combo shows the new text. So the dump -> patch -> burn path works.
+- `0xFC` (Number - + Enter held) enters test mode instead.
 
