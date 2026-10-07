@@ -62,6 +62,7 @@ plus `report.txt`. Images are in chip byte order, as dumped. Renaming needs IC12
 | `ic19_quick.py` | Quick screen (Enter + Edit): cutoff/reso/attack/release for all partials, used by `patch_ic19.py --quick` |
 | `mcs96_sim.py`, `test_ic19_quick.py` | small MCS-96 simulator (no I/O); runs the Quick screen on your patched dump |
 | `patch_ic15.py` | puts new OS code into your own IC15 image (free area 0x1F000), called via `patch_ic19.py --ic15-hook` |
+| `bake_rosetta.py` | ROM baker: your own IC19 + IC15 dumps from `roms/` -> Rosetta burn files in `baked/` |
 | `rosetta.py`, `test_rosetta.py` | Rosetta two-chip mod: IC19 hooks + IC15 code (menu with submenus, arp with groove / recorded sequence / MIDI out, unison, mono/legato/glide, mod matrix, synced LFO, wave sequence, chord memory / learn / scale chords, vintage, wave scan, drift, random cutoff/wave, lab), simulator checks |
 | `mcs96_asm.py` | small MCS-96 assembler (syntax = disassembler output; every line is checked by decoding it again) |
 
@@ -147,6 +148,12 @@ Please don't share the patched .bin: share this repo instead.
 Details: `IC19_MAP.md` ("Stage 3", "Quick screen"). Code: `patch_ic19.py`, `ic19_quick.py`.
 
 ## Rosetta two-chip mod (IC19 + IC15)
+**Easiest: the ROM baker.** Put your own IC19 dump in `roms/IC19 (main OS EPROM)/` and the IC15 file from Rosetta
+Studio (or your plain IC15 dump) in `roms/IC15 (bin from Rosetta Studio here)/`, then run
+`python bake_rosetta.py` (add `--test` to run the simulator checks first). `baked/` gets the burn files for IC19
+(27C256, or a W27C512 / 27C512 with the image doubled) and IC15 (SST39SF040 x4, or 128 KB for an SST39SF010A) and
+`BURN.txt` with the MD5s. The tool and this repo contain only the new code; don't share the baked .bin files.
+
 **v8 on hardware (user test):** boots, the Info line reads `Mem oooo P01 v8` (all RAM spots ok), the Lab items work
 (see Lab). The rest of v8 (arp, unison, glide, LFO, wave seq, saved settings) is not reported yet.
 **v9 on hardware:** user: "it all looks great and seems to work well" (no feature-by-feature report yet).

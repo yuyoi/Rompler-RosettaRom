@@ -22,6 +22,7 @@ Settings live in battery-backed RAM (0xF600-0xF62F, 0xF670-0xF69F, own magic wor
 """
 from mcs96_asm import Asm
 
+VERSION = 11                # shown on the banner and the Info line
 MAGIC = 0x5a1c
 S_MAGIC_V = 0x8a5f          # settings layout v9 (change it when the layout changes: old settings -> defaults)
 
@@ -357,12 +358,14 @@ def _tables():
     return lfo, glk, spd
 
 
-def build_ic15(ic19_labels, banner=(' ROSETTA OS v11 ', ' D-110  by JSW  ')):
+def build_ic15(ic19_labels, banner=None):
     """-> ([(cpu address, bytes), ...], Asm of the main code). Page 0x27: CPU 0x8000 = IC15 0x1C000."""
+    banner = banner or (' ROSETTA OS v%d ' % VERSION, ' D-110  by JSW  ')
     syms = dict(MAGIC=MAGIC, S_MAGIC_V=S_MAGIC_V, **RAM, **STOCK, CALL19=ic19_labels['call19'],
                 RD20=ic19_labels['rd20'], NITEMS=len(ITEMS), TX_BYTE=0x1d8d, VOL_A=0xf630, VOL_B=0xf650,
                 NCHORDS=len(CHORDS), NFIX=NFIX, XMARK_V=XMARK_V,
-                XOFS=0x30 + SET['LMMODE'] - 0xf670, XEND=SET['XMARK'] + 1)
+                XOFS=0x30 + SET['LMMODE'] - 0xf670, XEND=SET['XMARK'] + 1,
+                VTXT=int.from_bytes(('%2d' % VERSION).encode(), 'little'))
     C = Asm(CODE_ORG, syms).src(r'''
     ; ===================================================================== state
     ; init: called on every entry. Volatile state (registers, tables) after power-on, settings once.
@@ -2985,7 +2988,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS v11 ', ' D-110  by JSW  ')):
             lcall hexd
             ld    r70, #0x7620          ; ' v'
             lcall put2
-            ld    r70, #0x3131          ; '11'
+            ld    r70, #VTXT            ; version, 2 chars
             lcall put2
             sjmp  show
     d_on:   cmpb  r7e, zero             ; number, 0 = Off

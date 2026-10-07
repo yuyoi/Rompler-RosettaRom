@@ -20,3 +20,4 @@ mame_ref/*
 !mame_ref/build.sh
 !mame_ref/emu.h
 !mame_ref/mame_dasm.cpp
+baked/
