@@ -104,7 +104,7 @@ Works on a real D-110 (OS v1.10). It only changes IC19, the socketed OS EPROM, a
   Bank +/- = resonance, Number +/- = attack, Part +/- = release. Each step moves all 4 partials of the current part.
   Part (plain button) = next part P1..P8. Exit = back. Cutoff and resonance change held notes live; attack/release
   apply from the next note. Cutoff/resonance only affect synth partials (SQU/SAW), not PCM.
-- **MIDI CC knobs** (`--cc`, works on hardware): CC74 cutoff, CC71 resonance, CC73 attack, CC72 release,
+- **MIDI CC knobs** (`--cc`; cutoff/resonance work on hardware, attack/release not yet tested): CC74 cutoff, CC71 resonance, CC73 attack, CC72 release,
   per part on its MIDI channel. Cutoff/resonance move held notes live, like the Quick screen. Other numbers:
   `--cc 74,71,73,72` order cutoff,reso,attack,release (only CCs the stock OS ignores).
 - **Plain words:** WG/P-ENV/P-LFO/TVF/TVA... become OS/Pitch/Vibr./Flt/Amp...

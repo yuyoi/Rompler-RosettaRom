@@ -298,7 +298,7 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   (resonance changes held notes, the voice keeps playing). Cutoff writes
   `0x0C41` alone; its partner `0x0C40` (written at `0x38AB`, no RAM shadow) may get a stale byte the same way. That has
   not been heard on hardware, but watch for pulse-width/tone changes when sweeping cutoff.
-- v6 (works on hardware): **MIDI CC knobs** (`patch_ic19.py --cc`). The control change table `0x3BCE` gets
+- v6 (cutoff/reso CC work on hardware; attack/release CC not yet tested): **MIDI CC knobs** (`patch_ic19.py --cc`). The control change table `0x3BCE` gets
   entries for CC74/71/73/72 (stock: 0 = ignored). The dispatcher (`0x2317`/`0x23B3`) calls them once per part on that
   channel with `r45` = CC, `r46` = value, `r50` = part*16, and needs `r42`, `r44-r46`, `r50` kept. The handler
   (`0x1FA9`, stubs also at `0x2066`) sets the value `(v*max+63)/127` in all 4 partials and calls `live` with the
