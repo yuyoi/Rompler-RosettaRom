@@ -39,8 +39,9 @@ class Asm:
             else: s.b[at:at + 2] = (d & 0xffff).to_bytes(2, 'little')
         return bytes(s.b)
 
-def build(cc=None):
-    """cc = (cutoff, reso, attack, release) CC numbers, or None for no MIDI CC."""
+def build(cc=None, rosetta_ui=None):
+    """cc = (cutoff, reso, attack, release) CC numbers, or None for no MIDI CC. rosetta_ui = address of the Rosetta
+    menu handler (rosetta.py): the Edit key on the Quick screen opens it."""
     SUB_502B, SUB_525B, SUB_527D, SUB_5297, POP_STATE, MENU_RUN, RET = 0x502b, 0x525b, 0x527d, 0x5297, 0x5391, 0x53a3, 0x53e1
     PART = 0xf6cd                       # current part 0-8 (8 = rhythm)
     # param offsets from the timbre start (14 common bytes + partial block offset)
@@ -52,6 +53,7 @@ def build(cc=None):
     keys = [(0x01, POP_STATE), (0x05, 'cut_up'), (0x0d, 'cut_dn'), (0x06, 'res_up'), (0x0e, 'res_dn'),
             (0x07, 'atk_up'), (0x0f, 'atk_dn'), (0x04, 'rel_up'), (0x0c, 'rel_dn'), (0x0a, 'part_next')]
     for k, t in keys: D.raw('%02x21' % k); D.w(0)
+    if rosetta_ui: D.raw('093e'); D.w(rosetta_ui)                         # Edit: '>' push state to the Rosetta menu
     D.raw('00')
     D.L('tpl'); D.raw(b'\x00' + b'Cut --- Res --P-' + b'Atk --- Rel --- ' + b'\x00')
 
@@ -181,7 +183,7 @@ def build(cc=None):
         K.raw('653a0074')          # add r74,#0x3a
         K.djnz(0x77, 'ccl')
         K.L('cc_ret'); K.raw('f0')
-        K2 = Asm(0x2066)           # the rest of the FF area after the menu data
+        K2 = Asm(D.pc)             # the rest of the FF area after the menu data
         for i, (name, off, mx, kind) in enumerate([('cut', CUT, 100, 1), ('res', RES, 30, 2),
                                                    ('atk', ATK, 100, 0), ('rel', REL, 100, 0)]):
             A = K if i < 2 else K2
@@ -190,7 +192,7 @@ def build(cc=None):
             A.raw('ad%02x74' % off)                                        # ldbze r74,#off
             A.sjmp('cc')
         lab = dict(X.lab, **K.lab, **K2.lab)
-        out += [(0x1fa9, K.done(lab)), (0x2066, K2.done(lab))]
+        out += [(0x1fa9, K.done(lab)), (K2.org, K2.done(lab))]
         assert K.pc <= 0x2000 and K2.pc <= 0x2080, (hex(K.pc), hex(K2.pc))
         for n, name in zip(cc, ('cut', 'res', 'atk', 'rel')):
             out.append((0x3bce + 2 * n, lab['cc_' + name].to_bytes(2, 'little')))

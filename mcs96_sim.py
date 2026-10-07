@@ -30,8 +30,8 @@ class Sim:
 
     def st(self, a, v, size):
         a &= M16
-        if a in (0, 1) or 0x1000 <= a < 0xc000:
-            if a == 0x0100: self.bank = v & 0xff
+        if a == 0x0100: self.bank = v & 0xff      # bank latch (write-only)
+        if a in (0, 1, 0x0100) or 0x1000 <= a < 0xc000:
             return
         self.m[a] = v & 0xff
         if size == 2: self.m[a + 1] = (v >> 8) & 0xff
@@ -128,7 +128,9 @@ class Sim:
             cnt = o[1][1] if o[1][0] == '#' else self.ld(o[1][1], 1)
             v = self.rd(o[0], size); mask = M8 if size == 1 else M16
             r = (v << cnt) & mask if mn.startswith('shl') else v >> cnt
-            self.flags(r, size); self.wr(o[0], r, size)
+            self.flags(r, size)
+            if cnt: self.C = (v >> (cnt - 1)) & 1 if mn.startswith('shr') else (v << cnt) >> (8 * size) & 1
+            self.wr(o[0], r, size)
         elif mn in ('mulub', 'mulu'):
             if len(o) == 3: a, b = self.rd(o[1], 1 if mn == 'mulub' else 2), self.rd(o[2], 1 if mn == 'mulub' else 2)
             else: a, b = self.rd(o[0], 1 if mn == 'mulub' else 2), self.rd(o[1], 1 if mn == 'mulub' else 2)

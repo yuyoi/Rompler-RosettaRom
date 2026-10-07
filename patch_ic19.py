@@ -17,6 +17,9 @@ of the current part. Code and layout in ic19_quick.py.
 --cc (with --quick) adds MIDI CC knobs for the same four, per part on its MIDI channel, live like the Quick screen:
 CC74 cutoff, CC71 resonance, CC73 attack, CC72 release (the usual synth knob numbers), or --cc C,R,A,Rel. Only CC
 numbers the stock OS ignores (control change table 0x3BCE entry 0) can be used.
+--rosetta (with --quick --cc) adds the hooks for the Rosetta features in IC15 (rosetta.py; IC15 from
+patch_ic15.py --rosetta): Edit on the Quick screen opens the Rosetta menu, chord memory, CC70 wave scan, drift,
+random cutoff/wave. With a stock IC15 the hooks see no magic word and the unit works as v6.
 No ROM checksum routine was found in v1.10 (the only byte-summing loops are the SysEx checksums at 0x4518 and 0x4c27),
 so nothing has to be fixed up after a patch.
 """
@@ -90,6 +93,7 @@ def main():
     ap.add_argument('--quick', action='store_true', help='Enter+Edit opens a Quick screen instead of the demo')
     ap.add_argument('--cc', nargs='?', const='74,71,73,72', metavar='CUT,RES,ATK,REL',
                     help='MIDI CC knobs for the Quick params (needs --quick; default 74,71,73,72)')
+    ap.add_argument('--rosetta', action='store_true', help='hooks for the Rosetta features in IC15 (needs --quick --cc)')
     ap.add_argument('--any-version', action='store_true', help='skip the v1.10 SHA-1 check (addresses may be wrong)')
     a = ap.parse_args()
 
@@ -114,14 +118,19 @@ def main():
             for n in cc:
                 if rom[0x3bce + 2 * n:0x3bd0 + 2 * n] != b'\0\0': sys.exit('--cc: CC%d is already used by the OS' % n)
             if set(rom[0x1fa9:0x2000]) != {0xff}: sys.exit('--cc: 0x1fa9 is not free')
-        patches += ic19_quick.build(cc)
+        ros = None
+        if a.rosetta:
+            import rosetta
+            if not a.cc or a.any_version: sys.exit('--rosetta needs --cc and the v1.10 dump')
+            ros, ros_lab = rosetta.build_ic19()
+        patches += ic19_quick.build(cc, ros_lab['ros_ui'] if ros else None) + (ros or [])
     if a.boot_banner:
         patches += [(0x226a, b'\xfc'), (0x226c, b'\xdf')]           # cmpb r70,#0xfc ; je 0x2278
     if a.banner_time is not None:
         if not 1 <= a.banner_time <= 255: sys.exit('--banner-time: 1-255')
         patches.append((0x228e, bytes([a.banner_time])))         # ldb r75,#N in the delay at 0x228d
-    if a.cc and not a.quick:
-        sys.exit('--cc needs --quick')
+    if (a.cc or a.rosetta) and not a.quick:
+        sys.exit('--cc / --rosetta need --quick')
     if not patches:
         sys.exit('nothing to patch (try --banner, --boot-banner, --plain-words, --ic15-hook, --quick)')
     for addr, new in patches:

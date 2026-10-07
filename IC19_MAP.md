@@ -322,3 +322,26 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   menu), menu + template `0x2019-0x2061`. No edited (`*`) flag is set yet, so switching patch drops the changes
   without a prompt.
 
+
+## Rosetta (IC15 code, 2026-10-07, simulator only)
+- Call into IC15: `push rb6` (saves `rb7`), `lcall enter` (page 0x27, Z = magic `0x5A1C` at `0xB000`), `lcall 0xB0xx`,
+  `pop rb6`, `stb rb7,0x0100`. IC15 jump table: `0xB002` banner, `0xB005` menu, `0xB008` note on, `0xB00B` note off,
+  `0xB00E` CC70, `0xB011` partial hook. IC19 code in the dead demo areas `0x7F57-0x7FFF` and `0x3FB7-0x401B`.
+- IC15 code must not call IC19 routines directly when they may change the page (note on/off leave `rb7`/latch at the
+  timbre page): `call19` (TGT in RAM) restores page 0x27 afterwards. `rd20` reads IC15 page 0x20 (wave table
+  `0x8900`, 4 bytes per wave: pos, len, pitch word).
+- Hooks: `jtab_241C[0/1]` (note off/on, per part: `r45` note, `r46` velocity, `r50` part*16; keep `r42`, `r44-r46`,
+  `r50`), CC table entry 70, and `0x3BB4` (`st zero,0xf100[r54]` before the `ret` of `sub_3615`, the per-partial note-on
+  setup: `r54` p*2, `r56` block, `r52` note slot; `r70-r79` free; LA32 interrupt masked; pitch register not yet
+  written, so a change to the pitch base `0xEF40[p]` lands in the first write).
+- Pitch: base `0xEF40[p]` (word, 0x155 per semitone, clamp 0..0xE800). The periodic pass `L29F5` (one partial per main
+  loop pass) writes LA32 `0x0CC0[p]` = `0xEF40` + envelope/LFO `0xEFC0` + master tune + bend `0xF312[part]`
+  (`0x2BC0-0x2C08`). Glide hook candidate: `0x2BEA` (`add r70,0xef40[r40]; addc r72,zero`).
+- PCM partial LA32 writes at note-on: `0x0D00` (= `0xEF80`), `0x0D01` (= wave `len` | 8), `0x0C41` (= wave `pos`);
+  `0x0C40` is not written for PCM. Live wave change = same order, plus the pitch base moved by the pitch-word
+  difference.
+- Amplitude: no multiplier, attenuations are subtracted (`0x9B` - part level - CC7 - CC11 - bias `0xEDC1[p]` - partial
+  level - velocity `0xF180[p]`), at note-on, each envelope stage (`int_extint`) and the sustain re-ramp. Vector
+  synthesis candidate: add to `0xF180[p]`.
+- Free RAM: `0xF600-0xF6A3` (never referenced; battery-backed, so keep a magic byte). Rosetta uses `0xF610-0xF66F`.
+  Never-used registers: `0x1A-0x3F`, `0x90-0x9F`.
