@@ -268,7 +268,7 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   4 copies of a 512 KB burn file). Pass = the boot banner shows the IC15 text. Then larger features (live edits, CC
   handlers) can go into IC15 the same way, with the demo song area `0xB000-0x1EBFF` as further room.
 
-## Quick screen (v2 built 2026-10-07; v1 on hardware: screen and Exit OK, keys did nothing)
+## Quick screen (v2 works on hardware, 2026-10-07; v1: screen and Exit OK, keys did nothing)
 - v1 bug: the adjust routine kept the pointer in word `r74` and the max in `r75`, but `r75` is the high byte of
   `r74`, so the pointer went into ROM. v2 keeps the max in `r72`. Found with `mcs96_sim.py` (decode-based simulator,
   no I/O or interrupts). `test_ic19_quick.py` runs draw, every key, clamping, the rhythm guard and Exit on the patched
