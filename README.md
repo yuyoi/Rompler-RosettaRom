@@ -101,7 +101,7 @@ Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-12
 - [ ] Rebuild `dist/Rosetta ROM D110.exe` (current exe is v0.1).
 - [ ] Rosetta v8: hardware test (Info line, menu, saved settings, chord/unison/mono/glide, arp tempo vs metronome and
   MIDI clock, LFO -> cutoff, wave seq mid-note, lab bits). So far confirmed: v8 boots, Info `Mem oooo P01 v8` (RAM at 0xF500 / 0xF6A0 / 0xF740 / 0xF7F0 all
-  read back ok), Lab Reso High 7 = much stronger resonance, a lab setting gave a strange windy sound (which one: TBD).
+  read back ok), Lab Reso High 7 = much stronger resonance, Lab Ctrl XOR = strange windy sound (which values: TBD).
 - [ ] Rosetta v9 (after the v8 test): submenus (Edit on Wave Seq / Mod1-4 / Arp Mode opens it, Exit back), smarter arp
   (probability, ratchets, octave jumps, accents), chord learn, scale chords, vintage drift, tempo-synced LFO / S&H,
   Euclidean gate, humanize, arp record (Seq mode, step + live record, key transpose, one 32-step pattern in battery RAM).
@@ -164,7 +164,7 @@ With a stock IC15 the hooks find no magic word and the unit behaves exactly like
   - **Lab (experiment):** Lab Reso High sets bits 5-7 of the LA32 resonance byte that Roland ties to the reso value;
     Lab Ctrl XOR flips the low 6 control bits (structure) of synth partials. Unknown sounds, maybe silence.
     **Hardware:** Lab Reso High 7 (bits 5-7 = 110) gives much stronger resonance than the stock maximum (user test, v8).
-    Values 1-6 and Ctrl XOR not reported yet.
+    Lab Ctrl XOR gives a strange windy (noise-like) sound; which bits do it not reported yet. Reso High 1-6 not reported yet.
   - Changing chord, unison, mono, legato, glide or arp settings sends all notes off.
 - Timing: the arp tempo assumes the old demo tick is 2.08 ms (timer1 at 1.33 us). If the tempo is off on the unit,
   `TICK_MS` in `rosetta.py` is the one number to fix; MIDI clock sync does not depend on it.
