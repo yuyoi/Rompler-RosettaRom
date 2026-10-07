@@ -272,15 +272,15 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   4 copies of a 512 KB burn file). Pass = the boot banner shows the IC15 text. Then larger features (live edits, CC
   handlers) can go into IC15 the same way, with the demo song area `0xB000-0x1EBFF` as further room.
 
-## Quick screen (v2 works on hardware, 2026-10-07; v1: screen and Exit OK, keys did nothing)
+## Quick screen (v5 works on hardware, 2026-10-07: live cutoff and resonance; v1: keys did nothing)
 - v1 bug: the adjust routine kept the pointer in word `r74` and the max in `r75`, but `r75` is the high byte of
   `r74`, so the pointer went into ROM. v2 keeps the max in `r72`. Found with `mcs96_sim.py` (decode-based simulator,
   no I/O or interrupts). `test_ic19_quick.py` runs draw, every key, clamping, the rhythm guard and Exit on the patched
   dump.
-- v3 (built, not yet burned): the Part button (key `0x0A`) steps the current part P1..P8 (`0xF6CD`, the rhythm part is
+- v3 (works on hardware): the Part button (key `0x0A`) steps the current part P1..P8 (`0xF6CD`, the rhythm part is
   skipped). Reason: on hardware some patches kept their old filter, because the patch plays from another part than
   P1. Code `0x5112-0x5125`.
-- v4 (built, not yet burned): **live cutoff and resonance.** At note-on `sub_3615` writes one byte per LA32 partial:
+- v4: **live cutoff and resonance.** At note-on `sub_3615` writes one byte per LA32 partial:
   - cutoff (`0x17` x16 plus keyfollow/bias, `0x38F4`) -> `0xF1C0[p]` + LA32 `0x0C41[p]`
   - resonance `(r+1) | ((r+1)<<3 & 0xE0)` (`0x3781`) -> `0xEF81[p]` + LA32 `0x0D01[p]`
 
@@ -294,9 +294,10 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   exact except at the note-on clamps.
 - v4 on hardware: live cutoff OK; live resonance stopped the voice until the next note. The LA32 seems to take
   `0x0D00/0x0D01` as a 16-bit pair (note-on always writes `0x0D00` right before `0x0D01`), so a lone `0x0D01` write
-  pairs with a stale low byte. v5 rewrites `0x0D00` from its shadow `0xEF80` first, then `0x0D01`. Cutoff writes
+  pairs with a stale low byte. v5 rewrites `0x0D00` from its shadow `0xEF80` first, then `0x0D01`: works on hardware
+  (resonance changes held notes, the voice keeps playing). Cutoff writes
   `0x0C41` alone; its partner `0x0C40` (written at `0x38AB`, no RAM shadow) may get a stale byte the same way. That has
-  not been heard yet, so watch for pulse-width/tone changes when sweeping cutoff.
+  not been heard on hardware, but watch for pulse-width/tone changes when sweeping cutoff.
 - Lesson for new code: MCS-96 word registers are byte pairs (`r74` = `r74:r75`), so never mix a word and a byte on
   the same pair.
 - Key `0x19` = **Enter held + Edit** (`sub_1bd1` ORs 0x10 into the key code while SC1 bit 0 = Enter is down). In v1.10
