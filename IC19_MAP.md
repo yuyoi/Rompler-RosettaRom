@@ -209,4 +209,8 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
 - **Hardware test passed (2026-10-07).** Burned on a T48 to an ST M27C256B (UV EPROM) in place of the stock Mitsubishi
   M5M27C256K. The unit boots normally, and the combo shows the new text. So the dump -> patch -> burn path works.
 - `0xFC` (Number - + Enter held) enters test mode instead.
+- **Boot banner (built 2026-10-07, not yet burned):** `--boot-banner` changes `0x2269` from `cmpb r70,#0xEA; jne` to
+  `cmpb r70,#0xFC; je`, so the version screen shows on every power-on and only the test-mode combo skips it.
+  After the banner, `r70` = 0 (left by `0x228D`), so the `0xFC` test at `0x2278` does not fire. `--banner-time N` sets
+  the delay count at `0x228E` (v1.10: 30). Each step is 256*256 `djnz` loops, about 0.15 s at 12 MHz (estimate, not timed).
 

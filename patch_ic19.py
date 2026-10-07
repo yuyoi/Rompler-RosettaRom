@@ -5,6 +5,9 @@ only the new bytes are written. See IC19_MAP.md, "Stage 3".
 
 --banner replaces the two 16-character LCD lines shown when the version combo is held at power-on (boot code 0x2264
 compares the SC1 button row with 0xEA, then prints the string at 0x2205: one LCD position byte, 32 chars, 00).
+--boot-banner shows that screen on every power-on: the combo test `cmpb r70,#0xEA; jne 0x2278` at 0x2269 becomes
+`cmpb r70,#0xFC; je 0x2278`, so only the test-mode combo (0xFC) skips it and test mode still works. --banner-time N
+sets the delay loop count at 0x228E (v1.10: 30, about 4 s; each step is 256*256 djnz loops, ~0.15 s at 12 MHz).
 No ROM checksum routine was found in v1.10 (the only byte-summing loops are the SysEx checksums at 0x4518 and 0x4c27),
 so nothing has to be fixed up after a patch.
 """
@@ -26,6 +29,8 @@ def main():
     ap.add_argument('rom')
     ap.add_argument('-o', '--out', default='ctrl/ic19_patched.bin')
     ap.add_argument('--banner', nargs=2, metavar=('LINE1', 'LINE2'), help='version screen text, 16 chars per line')
+    ap.add_argument('--boot-banner', action='store_true', help='show the version screen on every power-on')
+    ap.add_argument('--banner-time', type=int, metavar='N', help='banner delay, 1-255 steps of ~0.15 s (v1.10: 30)')
     ap.add_argument('--any-version', action='store_true', help='skip the v1.10 SHA-1 check (addresses may be wrong)')
     a = ap.parse_args()
 
@@ -34,12 +39,18 @@ def main():
     if sha != V110_SHA1 and not a.any_version:
         sys.exit('%s: SHA-1 %s is not the v1.10 dump this tool knows (use --any-version to force)' % (a.rom, sha))
     patches = banner_patch(*a.banner) if a.banner else []
+    if a.boot_banner:
+        patches += [(0x226a, b'\xfc'), (0x226c, b'\xdf')]           # cmpb r70,#0xfc ; je 0x2278
+    if a.banner_time is not None:
+        if not 1 <= a.banner_time <= 255: sys.exit('--banner-time: 1-255')
+        patches.append((0x228e, bytes([a.banner_time])))         # ldb r75,#N in the delay at 0x228d
     if not patches:
-        sys.exit('nothing to patch (try --banner)')
+        sys.exit('nothing to patch (try --banner, --boot-banner)')
     for addr, new in patches:
         old = bytes(rom[addr:addr + len(new)])
         rom[addr:addr + len(new)] = new
-        print('0x%04x  %r -> %r' % (addr, old.decode('latin-1'), new.decode('latin-1')))
+        print('0x%04x  %s -> %s' % (addr, old.hex(' '), new.hex(' ')) if len(new) < 4 else
+              '0x%04x  %r -> %r' % (addr, old.decode('latin-1'), new.decode('latin-1')))
     open(a.out, 'wb').write(rom)
     print('wrote %s (%d bytes, SHA-1 %s)' % (a.out, len(rom), hashlib.sha1(rom).hexdigest()))
 
