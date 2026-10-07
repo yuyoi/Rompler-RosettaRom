@@ -213,4 +213,9 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   `cmpb r70,#0xFC; je`, so the version screen shows on every power-on and only the test-mode combo skips it.
   After the banner, `r70` = 0 (left by `0x228D`), so the `0xFC` test at `0x2278` does not fire. `--banner-time N` sets
   the delay count at `0x228E` (v1.10: 30). Each step is 256*256 `djnz` loops, about 0.15 s at 12 MHz (estimate, not timed).
+- **Plain words (built 2026-10-07, not yet burned):** `--plain-words` replaces Roland labels in place, same length
+  (packed 00-terminated strings in the window area, file `0x0000-0x0FFF` seen at `0x8000+`): WG->OS, P-ENV->Pitch,
+  P-LFO->Vibr., TVF->Flt, TVF-ENV->Flt Env, TVA->Amp, TVA-ENV->Amp Env, PitchCors->Semitone, PitchFine->Fine Tune,
+  Pitch KF=->KeyTrack=, Ptl Reserve->Voice Rsrv. Not renamed yet: the two `Freq` labels (`0x0528`, `0x052D`; which
+  one is the filter cutoff is not traced), DKF/TKF, Bias, TimeKF, T1VF.
 
