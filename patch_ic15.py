@@ -3,7 +3,8 @@
 ROM. Use with patch_ic19.py --ic15-hook --boot-banner. See IC19_MAP.md, "Code in IC15".
 
   python patch_ic15.py my_ic15.bin -o ic15_patched.bin --hello "Hello from IC15!" "new OS code runs"
-  python patch_ic15.py my_ic15.bin -o ic15_ros.bin --rosetta        (Rosetta features, see rosetta.py)
+  python patch_ic15.py my_ic15.bin -o ic15_ros.bin --rosetta        (Rosetta features, see rosetta.py; also writes
+                                                                     0x1C000-0x1EFFF, the end of the demo songs)
 
 Accepts a 128 KB image or a 512 KB SST39SF040 burn file (4 copies); every copy gets the same bytes.
 """
@@ -35,18 +36,23 @@ def main():
         sys.exit('expected a 128 KB image or a 512 KB burn file, got %d bytes' % len(rom))
     if a.rosetta:
         import rosetta
-        blob = rosetta.build_ic15(rosetta.build_ic19()[1])[0]
+        segs = rosetta.build_ic15(rosetta.build_ic19()[1])[0]       # [(cpu address in page 0x27, bytes)]
+        # the code area 0x1C000-0x1EFFF is the end of the demo song data (unused once IC19 has the Quick mod)
+        areas = [(0x1c000, 0x3000, segs[0][1]), (BASE, 0x1000, segs[1][1])]
+        assert segs[0][0] == 0x8000 and segs[1][0] == 0xb000
     else:
-        blob = hello(*a.hello)
-    if len(blob) > 0x1000: sys.exit('blob too big')
+        areas = [(BASE, 0x1000, hello(*a.hello))]
     for copy in range(0, len(rom), 0x20000):
         at = copy + BASE
         if rom[at:at + 2] != MAGIC and set(rom[at:at + 0x1000]) != {0xff}:
             sys.exit('0x%05x is not free (FF) in this image' % at)
-        rom[at:at + 0x1000] = blob + b'\xff' * (0x1000 - len(blob))     # (re)patching clears an older blob
+        for off, size, blob in areas:
+            if len(blob) > size: sys.exit('blob too big for 0x%05x' % off)
+            rom[copy + off:copy + off + size] = blob + b'\xff' * (size - len(blob))   # (re)patching clears older code
     open(a.out, 'wb').write(rom)
-    print('wrote %s: %d bytes at 0x%05x in %d cop%s' % (a.out, len(blob), BASE, len(rom) // 0x20000,
-                                                       'y' if len(rom) == 0x20000 else 'ies'))
+    for off, size, blob in areas:
+        print('%d bytes at 0x%05x' % (len(blob), off))
+    print('wrote %s, %d cop%s' % (a.out, len(rom) // 0x20000, 'y' if len(rom) == 0x20000 else 'ies'))
 
 
 if __name__ == '__main__':

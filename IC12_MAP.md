@@ -20,7 +20,7 @@ Validated 2026-10-05 against munt's `ControlROMMap`/`Structures.h` (MT-32/CM-32L
 | `0x3C00-0x3FFF` | | FF fill | |
 | `0x4000-0x96FF` | 128 timbres | **Preset timbres** (`AcouPiano1` ... `JungleTune`), compressed. A bank `0x4000-0x68A7`, B bank `0x68B0-0x96FD`; gaps at the bank boundary only (`0x68A8`, `0x7FCA`). | verified |
 | `0x9800-0xAFFF` | | FF fill | |
-| `0xB000-0x1EBFF` | ~82 KB | **Three demo songs**: `Macho Memory` 0xB000, `Sugar Plum` 0x10000, `Bumble Dee` 0x15C10. Sequencer data, not decoded. | identified |
+| `0xB000-0x1EE7A` | ~82 KB | **Three demo songs**: `Macho Memory` 0xB000, `Sugar Plum` 0x10000, `Bumble Dee` 0x15C10 (event data runs to 0x1EE7A, FF after). Sequencer data, not decoded. Rosetta v8 puts code at 0x1C000-0x1EFFF (demo unreachable with the Quick mod). | identified |
 | `0x1F000-0x1FFFF` | | FF fill | |
 
 IC19 (32 KB) is the 8095 OS, IC6 (32 KB) is not identified. Nothing in IC12 is code.

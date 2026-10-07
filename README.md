@@ -62,7 +62,7 @@ plus `report.txt`. Images are in chip byte order, as dumped. Renaming needs IC12
 | `ic19_quick.py` | Quick screen (Enter + Edit): cutoff/reso/attack/release for all partials, used by `patch_ic19.py --quick` |
 | `mcs96_sim.py`, `test_ic19_quick.py` | small MCS-96 simulator (no I/O); runs the Quick screen on your patched dump |
 | `patch_ic15.py` | puts new OS code into your own IC15 image (free area 0x1F000), called via `patch_ic19.py --ic15-hook` |
-| `rosetta.py`, `test_rosetta.py` | Rosetta two-chip mod: IC19 hooks + IC15 code (menu, chord memory, wave scan, drift, random cutoff/wave), simulator checks |
+| `rosetta.py`, `test_rosetta.py` | Rosetta two-chip mod: IC19 hooks + IC15 code (menu, arp, unison, mono/legato/glide, mod matrix, wave sequence, chord memory, wave scan, drift, random cutoff/wave, lab), simulator checks |
 | `mcs96_asm.py` | small MCS-96 assembler (syntax = disassembler output; every line is checked by decoding it again) |
 
 ## Credits and legal
@@ -133,20 +133,32 @@ Please don't share the patched .bin: share this repo instead.
 
 Details: `IC19_MAP.md` ("Stage 3", "Quick screen"). Code: `patch_ic19.py`, `ic19_quick.py`.
 
-## Rosetta two-chip mod (IC19 + IC15, not yet tested on hardware)
-v6 plus new features whose code lives in IC15 (page 0x27, the free 4 KB at IC15 0x1F000). IC19 gets only small hooks.
+## Rosetta two-chip mod (IC19 + IC15)
+v7c (menu, chord, wave scan, drift, random cutoff/wave) is the last hardware-tested step: the v7b Info line showed the
+odd-address bug that v7c fixed; v7c itself is not yet confirmed. **v8 is simulator-only.**
+v6 plus new features whose code lives in IC15 page 0x27: 7 KB at IC15 0x1C000-0x1EFFF (the end of the demo songs,
+unused once the Quick mod has replaced the demo menu) and the jump table at 0x1F000. IC19 gets only small hooks.
 With a stock IC15 the hooks find no magic word and the unit behaves exactly like v6.
 - **Rosetta menu:** on the Quick screen press **Edit**. Group +/- = item, Bank +/- = value -/+1, Number +/- = -/+10,
-  Part = current part (P1-P8, also on the Quick screen; pick one first, it shows P- until then), Exit = back.
-  Settings reset at power-off. Info = memory test and the current part byte in hex.
-  v7c fixes the garbage values and dead edits of v7/v7b (a menu table word read at an odd address).
-  - **Wave Scan (CC70):** offset 0-127 on the PCM wave of the current part's PCM partials, live, also from MIDI CC70.
-    The pitch is corrected for each wave's tuning. (Experiment: does the LA32 switch waves mid-note?)
-  - **Random Wave:** each note picks a PCM wave offset 0..N at random.
-  - **Drift Pitch:** each note gets a small random detune (31 = about +-36 cents), the same for all its partials.
-  - **Random Cutoff:** each note gets a random cutoff offset +-N (synth partials).
-  - **Chord / Chord Part:** one key plays Octave, Fifth, 5th+Oct, Major, Minor, Sus4, Major7, Minor7, Dom7, Minor9 or
-    Dim, on all parts or one part. Changing the chord sends all notes off.
+  **Edit = next section**, Part = current part (P1-P8, also on the Quick screen), Exit = back. Settings are kept in
+  battery RAM (survive power-off, v8). Info = memory test of the RAM v8 uses (`o` = ok, `X` = bad), part byte, version.
+  - **Wave:** Wave Scan (CC70, per part, live), Random Wave, **Wave Seq** (Up 4, Up 8, Down 4, Ping 8, Octo, Strobe,
+    Once 4, Random, User), WSeq Speed, WSeq Part, WSeq User 1-8. The sequence steps the PCM wave of each note over
+    time (Wavestation style); the pitch follows each wave's tuning.
+  - **Pitch:** Drift Pitch, **Glide Time / Glide Part** (each note glides from the last note of its part), **Mono
+    Part** (one note, last-key priority, back to held keys), **Legato** (mono: no new attack, the note moves).
+  - **Voice:** **Unison Voices** (1-4) / Detune / Part, Chord / Chord Part (chords x unison work together).
+  - **Filter:** Random Cutoff.
+  - **Mod matrix:** 4 slots, Source (ModWheel, AftTouch, Velocity, Key, LFO, S&H, CC16, CC17) -> Dest (Cutoff,
+    Pitch, Wave, Level, Reso) x Amount (-63..+63), LFO Rate, Mod Part. Velocity -> Wave = velocity layers.
+  - **Arp:** Mode (Up, Down, Up+Down, Random, Played), Octaves 1-4, Rate (1/4 .. 1/32), Tempo 40-240 BPM, Gate,
+    Latch, Arp Part. Syncs to MIDI clock when one is received (start resets the pattern). Arp notes go through mono,
+    chord, unison and glide too.
+  - **Lab (experiment):** Lab Reso High sets bits 5-7 of the LA32 resonance byte that Roland ties to the reso value;
+    Lab Ctrl XOR flips the low 6 control bits (structure) of synth partials. Unknown sounds, maybe silence.
+  - Changing chord, unison, mono, legato, glide or arp settings sends all notes off.
+- Timing: the arp tempo assumes the old demo tick is 2.08 ms (timer1 at 1.33 us). If the tempo is off on the unit,
+  `TICK_MS` in `rosetta.py` is the one number to fix; MIDI clock sync does not depend on it.
 - Build: `patch_ic19.py ... --quick --cc --rosetta --ic15-hook` and `patch_ic15.py my_ic15.bin -o my_ic15_ros.bin
   --rosetta` (your own IC15 dump; 128 KB or the 512 KB x4 burn file). The boot banner comes from IC15 when it is
   found, so the banner tells you if both chips are right. `python test_rosetta.py ic19_ros.bin my_ic15_ros.bin`

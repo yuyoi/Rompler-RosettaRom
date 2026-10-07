@@ -84,10 +84,11 @@ class Sim:
     def call(self, addr, max_steps=200000):
         """push a sentinel return address and run until it returns"""
         self.push(0xfffe); self.pc = addr
+        n = 0
         while self.pc != 0xfffe:
             self.step()
-            self.steps += 1
-            if self.steps > max_steps: raise RuntimeError('runaway at %04x' % self.pc)
+            self.steps += 1; n += 1
+            if n > max_steps: raise RuntimeError('runaway at %04x' % self.pc)
 
     def step(self):
         pc = self.cur = self.pc
@@ -128,10 +129,14 @@ class Sim:
             r = self.subf(0, v, size) if mn.startswith('neg') else (~v) & mask
             if mn.startswith('not'): self.flags(r, size)
             self.wr(o[0], r, size)
-        elif mn in ('shl', 'shlb', 'shr', 'shrb'):
+        elif mn in ('shl', 'shlb', 'shr', 'shrb', 'shra', 'shrab'):
             cnt = o[1][1] if o[1][0] == '#' else self.ld(o[1][1], 1)
             v = self.rd(o[0], size); mask = M8 if size == 1 else M16
-            r = (v << cnt) & mask if mn.startswith('shl') else v >> cnt
+            if mn.startswith('shra'):
+                sv = v - (mask + 1) if v & (mask + 1) >> 1 else v
+                r = (sv >> cnt) & mask
+            else:
+                r = (v << cnt) & mask if mn.startswith('shl') else v >> cnt
             self.flags(r, size)
             if cnt: self.C = (v >> (cnt - 1)) & 1 if mn.startswith('shr') else (v << cnt) >> (8 * size) & 1
             self.wr(o[0], r, size)

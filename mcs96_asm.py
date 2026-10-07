@@ -11,7 +11,7 @@ by decoding it again (asm text and disassembly must agree).
     ''')
     code = a.bytes()
 
-`je! label` (any jcc + '!') = far branch: the inverse jcc over an ljmp (5 bytes).
+`je! label` (any jcc + '!') = far branch: the inverse jcc over an ljmp (5 bytes); `jbc!`/`jbs!` the same (6 bytes).
 Operands: rNN / sfr names (r70, rb7, int_mask, sp, zero), #imm, [rNN], [rNN]+, off[rNN], plain address (= long
 indexed off zero; registers 0x00-0xff are written rNN). Numbers and symbols may be Python expressions (labels, the
 symbol dict, hi(x)/lo(x)). `db` / `dw` emit data, `even` pads to an even address (word tables: the CPU cannot
@@ -116,6 +116,9 @@ class Asm:
             d = rel8(ops[0], 2); s.chk8(d, ins, env); return bytes([JCC[mn], d & 0xff])
         if mn == 'djnz':
             d = rel8(ops[1], 3); s.chk8(d, ins, env); return bytes([0xe0, s.reg(ops[0], env), d & 0xff])
+        if mn in ('jbc!', 'jbs!'):                        # far bit test: inverse jbx over an ljmp
+            d = (s.val(ops[2], env) - (pc + 6)) & 0xffff
+            return bytes([(0x38 if mn == 'jbc!' else 0x30) + s.val(ops[1], env), s.reg(ops[0], env), 3, 0xe7]) + d.to_bytes(2, 'little')
         if mn in ('jbc', 'jbs'):
             d = rel8(ops[2], 3); s.chk8(d, ins, env)
             return bytes([(0x30 if mn == 'jbc' else 0x38) + s.val(ops[1], env), s.reg(ops[0], env), d & 0xff])
@@ -151,14 +154,19 @@ class Asm:
         env = dict(s.syms, **labels, _pass=pas)
         pc, out, lab = s.org, bytearray(), {}
         for kind, x in s.lines:
-            if kind == 'label': lab[x] = pc; env[x] = pc; continue
+            if kind == 'label':
+                if x in lab: raise AsmError('label %s defined twice' % x)
+                lab[x] = pc; env[x] = pc; continue
             try:
                 b = s.enc(x, pc, env)
             except AsmError: raise
             except Exception as e:
                 raise AsmError('%s: %s' % (x, e))
             if pas == 2 and not x.startswith(('db', 'dw', 'even')):
-                if x.split()[0].endswith('!'):
+                if x.split()[0] in ('jbc!', 'jbs!'):
+                    s.check({'jbc!': 'jbs', 'jbs!': 'jbc'}[x.split()[0]] + ' x', b[:3], pc, env)
+                    s.check('ljmp x', b[3:], pc + 3, env)
+                elif x.split()[0].endswith('!'):
                     s.check(x.split()[0][:-1] + ' x', b[:2], pc, env, inverse=True); s.check('ljmp x', b[2:], pc + 2, env)
                 else: s.check(x, b, pc, env)
             out += b; pc += len(b)

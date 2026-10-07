@@ -323,32 +323,50 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   without a prompt.
 
 
-## Rosetta (IC15 code, 2026-10-07, simulator only)
+## Rosetta (IC15 code, 2026-10-07; v7b on hardware, v8 simulator only)
 - Call into IC15: `push rb6` (saves `rb7`), `lcall enter` (page 0x27, Z = magic `0x5A1C` at `0xB000`), `lcall 0xB0xx`,
   `pop rb6`, `stb rb7,0x0100`. IC15 jump table: `0xB002` banner, `0xB005` menu, `0xB008` note on, `0xB00B` note off,
-  `0xB00E` CC70, `0xB011` partial hook. IC19 code in the dead demo areas `0x7F57-0x7FFF` and `0x3FB7-0x401B`.
+  `0xB00E` CC70, `0xB011` partial hook, `0xB014` tick, `0xB017` aftertouch, `0xB01A` CC16/17. IC19 code in the dead
+  demo areas `0x7F57-0x7FFF`, `0x3FB7-0x401B` and the demo sequencer `0x2371-0x241B`. IC15 code at CPU
+  `0x8000-0xAFFF` (IC15 `0x1C000`, end of the demo songs).
 - IC15 code must not call IC19 routines directly when they may change the page (note on/off leave `rb7`/latch at the
-  timbre page): `call19` (TGT in RAM) restores page 0x27 afterwards. `rd20` reads IC15 page 0x20 (wave table
-  `0x8900`, 4 bytes per wave: pos, len, pitch word).
+  timbre page): `call19` (TGT) restores page 0x27 afterwards. `rd20` reads IC15 page 0x20 (wave table `0x8900`,
+  4 bytes per wave: pos, len, pitch word).
 - Hooks: `jtab_241C[0/1]` (note off/on, per part: `r45` note, `r46` velocity, `r50` part*16; keep `r42`, `r44-r46`,
-  `r50`), CC table entry 70, and `0x3BB4` (`st zero,0xf100[r54]` before the `ret` of `sub_3615`, the per-partial note-on
-  setup: `r54` p*2, `r56` block, `r52` note slot; `r70-r79` free; LA32 interrupt masked; pitch register not yet
-  written, so a change to the pitch base `0xEF40[p]` lands in the first write).
-- Pitch: base `0xEF40[p]` (word, 0x155 per semitone, clamp 0..0xE800). The periodic pass `L29F5` (one partial per main
-  loop pass) writes LA32 `0x0CC0[p]` = `0xEF40` + envelope/LFO `0xEFC0` + master tune + bend `0xF312[part]`
-  (`0x2BC0-0x2C08`). Glide hook candidate: `0x2BEA` (`add r70,0xef40[r40]; addc r72,zero`).
+  `r50`), `jtab_241C[2/5]` (An poly / Dn channel aftertouch, stock `ret`), CC table entries 16, 17, 70, and `0x3BB4`
+  (`st zero,0xf100[r54]` before the `ret` of `sub_3615`, the per-partial note-on setup: `r54` p*2, `r56` block, `r52`
+  note slot; `r70-r79` free; LA32 interrupt masked; pitch register not yet written, so a change to the pitch base
+  `0xEF40[p]` lands in the first write).
+- **Main-loop tick:** software timer 1 (HSO command `0x19`, period `rc2` = `0x061A` timer1 counts, set at `0x2165`;
+  the demo player changed it at `0x3F28`) increments `rc4` (`0x1A19`). Only the demo sequencer (`0x2380`) consumed it.
+  v8 patches the idle path `0x22B9` (`ljmp L29F5` after `orb int_mask,#0xE1; ei`) to `h_tick`: if `rc4` > 0 it is
+  cleared and IC15 gets the tick count, then `ljmp L29F5`. Free there: `r42-r47`, `r50-r58`, `r70-r7F` (not `r40`, the
+  periodic pass index, nor `r48-r4F`; `r4B` is the timer1 overflow counter).
+- **MIDI clock:** the serial interrupt queues only `0xFC` of the real-time bytes `0xF8-0xFD` (`0x1E83`:
+  `cmpb rf8,#0xfc; jne L1E27`). v8 jumps to `h_rt` there: `0xF8` increments `r90`, `0xFA` sets `r91`, `0xFC` continues
+  at `0x1E88` as before.
+- Pitch: base `0xEF40[p]` (word, 0x155 per semitone, clamp 0..0xE800), written only at note-on (`0x3875`). The periodic
+  pass `L29F5` (one partial per main loop pass) writes LA32 `0x0CC0[p]` = `0xEF40` + envelope/LFO `0xEFC0` + master
+  tune + bend `0xF312[part]` (`0x2BC0-0x2C08`). v8 keeps its own base `PB[p]` and writes `0xEF40` = PB + glide + mod.
 - PCM partial LA32 writes at note-on: `0x0D00` (= `0xEF80`), `0x0D01` (= wave `len` | 8), `0x0C41` (= wave `pos`);
   `0x0C40` is not written for PCM. Live wave change = same order, plus the pitch base moved by the pitch-word
   difference.
+- Synth partial control byte `0xEF80`/`0x0D00` (`0x3706-0x377C`): bits 0-4 structure (tables `0x1725`/`0x17BE`), bit 5
+  from `ra8`, bit 6 = waveform (timbre byte 4 bit 0), bit 7 = PCM. Resonance `0xEF81`/`0x0D01` = (r+1) | ((r+1)<<3 &
+  0xE0), r = 0-30, so bits 5-7 copy bits 2-4 (the Lab items set them on their own).
 - Amplitude: no multiplier, attenuations are subtracted (`0x9B` - part level - CC7 - CC11 - bias `0xEDC1[p]` - partial
-  level - velocity `0xF180[p]`), at note-on, each envelope stage (`int_extint`) and the sustain re-ramp. Vector
-  synthesis candidate: add to `0xF180[p]`.
-- Free RAM: `0xF600-0xF6A3` looks unreferenced. On hardware (v7b Info item) `0xF630` and `0xF6A0` pass a write/read
-  test. v7/v7b showed garbage values and edits that did not stick; the cause was a word read at an odd address
-  (`ld r74,16[r78]` from the menu table, which sat at an odd address), not the RAM. v7b keeps settings in the
-  never-used registers `0x1A-0x33` (lost at power-off), the per-partial wave offset table at `0xF630`. Other
-  never-used registers: `0x34-0x3F`, `0x90-0x9F`.
+  level - velocity `0xF180[p]`), at note-on, each envelope stage (`int_extint`) and the sustain re-ramp
+  (`0x2C23`, stage 5). The Level mod destination changes `0xF180[p]`, so it is heard from the next stage / in sustain.
+- Note slots: part list head `0xF285[part]`, next slot `0xF3C0[s]`, first partial `0xF440[s]`, next partial
+  `0xEE40[p]`; slot note `0xF400[s]` (key-shifted, bit 7 = held by the pedal), slot flags `0xF460[s]` (bit 6 =
+  released). Note off releases the first matching slot only, so unison (N slots per key) sends N note offs.
+- **RAM:** `0xF500-0xF5FF`, `0xF600-0xF6A3` and `0xF740-0xF7FF` are not referenced by the OS (the stack starts at
+  `0xF9D0`, the SysEx LCD area ends at `0xF72C`). v8: per-partial tables at `0xF500` (pitch base, glide), `0xF580`,
+  `0xF5C0`, `0xF630`, `0xF740`, `0xF780`; settings (magic word) `0xF600-0xF62F` + `0xF670-0xF69F`; state `0xF7C0-`.
+  Registers `0x1A-0x3F` and `0x90-0x9F` are never used by the OS. v7/v7b showed garbage values and edits that did not
+  stick; the cause was a word read at an odd address (`ld r74,16[r78]` from the menu table), not the RAM. The Info
+  item tests `0xF500`, `0xF6A0`, `0xF740`, `0xF7F0`.
 - **Word accesses must be at even addresses.** The real CPU does not do odd ones (seen on the v7b Info line: a word
   store to an odd LCD buffer address wrote only one byte). `mcs96_sim` logs them in `Sim.odd`, `test_rosetta.py`
-  fails on any, and `mcs96_asm` has `even` to align word tables.
+  fails on any, and `mcs96_asm` has `even` to align word tables (and refuses a label defined twice).
 - `0xF6CD` (current part) reads `0xFF` until a part is picked with the Part button (Quick screen or Rosetta menu).
