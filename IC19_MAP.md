@@ -292,6 +292,11 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   `0xF3C0`) and their partials (`0xF440`, `0xEE40`). For each synth partial whose block pointer `0xEE80[p]` matches,
   it does cutoff `0xF1C0` +/-1 (0..255) or recomputes resonance, and writes the LA32 register. The cutoff delta is
   exact except at the note-on clamps.
+- v4 on hardware: live cutoff OK; live resonance stopped the voice until the next note. The LA32 seems to take
+  `0x0D00/0x0D01` as a 16-bit pair (note-on always writes `0x0D00` right before `0x0D01`), so a lone `0x0D01` write
+  pairs with a stale low byte. v5 rewrites `0x0D00` from its shadow `0xEF80` first, then `0x0D01`. Cutoff writes
+  `0x0C41` alone; its partner `0x0C40` (written at `0x38AB`, no RAM shadow) may get a stale byte the same way. That has
+  not been heard yet, so watch for pulse-width/tone changes when sweeping cutoff.
 - Lesson for new code: MCS-96 word registers are byte pairs (`r74` = `r74:r75`), so never mix a word and a byte on
   the same pair.
 - Key `0x19` = **Enter held + Edit** (`sub_1bd1` ORs 0x10 into the key code while SC1 bit 0 = Enter is down). In v1.10

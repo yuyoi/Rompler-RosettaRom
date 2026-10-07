@@ -143,7 +143,11 @@ def build():
     X.raw('19037b')            # shlb r7b,#3
     X.raw('71e07b')            # andb r7b,#0xe0
     X.raw('907b7a')            # orb r7a,r7b
-    X.raw('c75581ef7a'); X.raw('c755010d7a')                             # stb 0xef81[r54] ; stb LA32 0x0d01[r54]
+    X.raw('c75581ef7a')        # stb r7a,0xef81[r54]
+    # LA32 takes 0x0D00/0x0D01 as a pair (note-on writes 0x0D00 right before 0x0D01; writing 0x0D01 alone stopped the
+    # voice on hardware, v4): rewrite 0x0D00 from its shadow 0xEF80 first, then the new 0x0D01
+    X.raw('b35580ef7b'); X.raw('c755000d7b')                             # ldb r7b,0xef80[r54] ; stb LA32 0x0d00[r54]
+    X.raw('c755010d7a')        # stb r7a,0x0d01[r54]
     X.L('pn'); X.raw('af5540ee54'); X.sjmp('pl')                         # ldbze r54,0xee40[r54]
     X.L('nn'); X.raw('af53c0f352'); X.sjmp('nl')                         # ldbze r52,0xf3c0[r52]
     X.L('lv_done'); X.raw('918008')                                      # orb int_mask,#0x80
