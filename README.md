@@ -107,6 +107,11 @@ Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-12
 - [ ] Rosetta v9/v10 hardware test, feature by feature (v9: user says it all looks great and works well): submenus, vintage, chord learn, scale chords, LFO sync, arp groove (chance,
   ratchet, octave jump, accent, Euclid, humanize), Seq (step / live record, transpose), arp MIDI out (needs another
   synth or a MIDI monitor on MIDI OUT), Lab Reso Low / Ctrl XOR 64-255 / PCM XOR / PCM Pos / Lab Part.
+- [ ] **Rosetta IC19-only version** (one chip, stock IC15; shared as a patch tool that users apply to their own IC19
+  dump, never as a .bin): the stock front-panel code is about 8.5 KB code + 1.2 KB menus + ~2-3 KB UI text of the
+  23.9 KB (simulator reachability without UI pointers), about the size of Rosetta (~12.5 KB). Needs: a linker step
+  to spread the code over ~25 free holes, a check of every removed routine against SysEx / error-message paths,
+  a decision on what stays on the panel (patch / part select, Write), and a SysEx editor for patch / timbre editing.
 - [ ] OS mod: check that the stock Write/Copy > "Timbre Write" saves Quick-screen/CC edits (they go into the same timbre temp area the stock editor uses; the edited flags only drive the `*` marker). Resonance etc. belong to the timbre, not the patch: write the timbre to an I-slot, point the patch part at it, then Patch Write.
 
 ## D-110 OS mod v6: one EPROM swap (IC19 only)
