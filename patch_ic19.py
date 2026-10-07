@@ -100,8 +100,7 @@ def main():
         patches += [(IC15_TRAMP, IC15_TRAMP_CODE), (0x2272, bytes.fromhex('ef1cff'))]   # lcall 0x2191
     if a.quick:
         import ic19_quick
-        for at, old in ic19_quick.OLD.items():
-            if rom[at:at + len(old)] != old: sys.exit('quick: unexpected bytes at 0x%04x' % at)
+        if not ic19_quick.old_ok(rom): sys.exit('quick: menu entry 0x4fa9 / demo handler 0x5036 not as in v1.10')
         if set(rom[0x2019:0x2080]) != {0xff}: sys.exit('quick: 0x2019 is not free')
         patches += ic19_quick.build()
     if a.boot_banner:

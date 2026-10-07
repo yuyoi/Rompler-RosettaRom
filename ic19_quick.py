@@ -107,7 +107,12 @@ def build():
             (0x5037, D.lab['menu'].to_bytes(2, 'little'))]   # dead demo state 0x5036 now runs this menu too (safety)
 
 
-OLD = {0x4fa9: bytes.fromhex('19bd3650b64f'), 0x5036: bytes.fromhex('a1775078e76603')}   # v1.10 bytes this patch expects
+OLD_SHA1 = 'cf84018246e2fac022720d6efdce7bdf42efcd47'   # SHA-1 of v1.10 bytes 0x4fa9-0x4fae + 0x5036-0x503c (the menu entry and demo handler)
+
+
+def old_ok(rom):
+    import hashlib
+    return hashlib.sha1(bytes(rom[0x4fa9:0x4faf]) + bytes(rom[0x5036:0x503d])).hexdigest() == OLD_SHA1
 
 
 if __name__ == '__main__':

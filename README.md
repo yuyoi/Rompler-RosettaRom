@@ -98,6 +98,31 @@ Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-12
 - [ ] Length codes 4-7 (samples longer than 0.51 s without the stretch trick) untested.
 - [ ] Rebuild `dist/Rosetta ROM D110.exe` (current exe is v0.1).
 
+## D-110 OS mod: one EPROM swap (IC19 only)
+Works on a real D-110 (OS v1.10). It only changes IC19, the socketed OS EPROM, and works with a stock IC15/IC7/IC8.
+- **Quick screen:** hold **Enter** + press **Edit** (this used to start the demo). Group +/- = filter cutoff,
+  Bank +/- = resonance, Number +/- = attack, Part +/- = release. Each step moves all 4 partials of the current part.
+  Exit = back. Changes apply from the next note. Cutoff/resonance only affect synth partials (SQU/SAW), not PCM.
+- **Plain words:** WG/P-ENV/P-LFO/TVF/TVA... become OS/Pitch/Vibr./Flt/Amp...
+- **Boot banner:** your own 2 x 16 characters at power-on.
+
+**Legal:** this repo contains no Roland code. You read **your own** IC19 and the tool adds the new bytes to your dump.
+Please don't share the patched .bin: share this repo instead.
+
+1. Read your IC19 (27C256-type EPROM, e.g. M5M27C256K) on a programmer such as a T48 (27C256 profile) and save it
+   as `ctrl/ic19.bin`. Keep the original chip.
+2. Patch it (the tool refuses anything that is not the v1.10 dump, SHA-1 `28635510...`):
+   ```
+   python patch_ic19.py ctrl/ic19.bin -o ctrl/ic19_mod.bin --quick --plain-words --boot-banner --banner-time 15 --banner " D-110  ROSETTA " "  your text     "
+   ```
+   Any option can be left out. `python test_ic19_quick.py ctrl/ic19_mod.bin` runs the Quick screen in a simulator
+   first.
+3. Burn `ic19_mod.bin` to a blank 27C256 (UV EPROM such as M27C256B; erase it under UV first), read it back and
+   compare, then fit it in IC19 (notch the same way).
+4. If anything looks wrong, put the original chip back.
+
+Details: `IC19_MAP.md` ("Stage 3", "Quick screen"). Code: `patch_ic19.py`, `ic19_quick.py`.
+
 ## Disassembling the OS ROM (IC19)
 IC19 (32 KB, socketed) holds the 8097 program. With your own dump in `ctrl/ic19.bin` (gitignored):
 ```
