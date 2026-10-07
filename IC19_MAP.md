@@ -219,3 +219,22 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   Pitch KF=->KeyTrack=, Ptl Reserve->Voice Rsrv. Not renamed yet: the two `Freq` labels (`0x0528`, `0x052D`; which
   one is the filter cutoff is not traced), DKF/TKF, Bias, TimeKF, T1VF.
 
+## Live edits: what applies when (2026-10-07, from the listing, not yet heard on hardware)
+- Timbre temp area per part: `0xE1E4 + part*0xF6` (pointer kept in `0xF310[part*16]`). Layout is the MT-32 one:
+  14 common bytes, then 4 partial blocks of 58 bytes (0x00 pitch coarse ... 0x17 TVF cutoff, 0x18 resonance ...
+  0x29 TVA level ... 0x31-0x39 TVA env).
+- An edit (panel or SysEx DT1 into MSB 02/04, handler `0x4086`) only writes the byte and sets "edited" flags
+  (`0xF6E8`/`0xF6EA` per part, `0xF6E9` bit 7). Those flags only drive the `*`/`-` marker on the LCD (`0x5214`,
+  `0x5DAB`). Nothing recomputes sounding notes.
+- Note-on partial setup `sub_3615` reads the 58-byte block once (cutoff `0x17`, reso `0x18`, keyfollow, bias, PW,
+  pitch, waveform) and stores derived values per partial. So these apply **from the next note only**.
+- Per sounding partial, `0xEE80[partial*2]` points into that block, and two routines read it again while the note
+  plays:
+  - `int_extint` (LA32 ramp done, so at each envelope stage) reads TVF/TVA envelope levels and times (`0x24-0x39`).
+  - `sub_29b6` (periodic) reads pitch envelope and LFO bytes (`0x08`-`0x16`).
+  So envelope and LFO edits should already reach held notes at the next stage or tick.
+- Part-level changes (`sub_4d33`: timbre or tone select) first release all notes of the part (`sub_30f0`).
+- To make cutoff, reso, PW and pitch live: after an edit, for each sounding partial of that part, redo the matching
+  slice of `sub_3615` and write the LA32 register. Code space is the limit (~300 bytes free in `0x1000-0x7FFF`; the test
+  mode in bank page 0, `0x8A00-0x8FFF`, could be given up for ~1.5 KB more).
+
