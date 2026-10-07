@@ -100,7 +100,8 @@ Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-12
 - [ ] Length codes 4-7 (samples longer than 0.51 s without the stretch trick) untested.
 - [ ] Rebuild `dist/Rosetta ROM D110.exe` (current exe is v0.1).
 - [ ] Rosetta v8: hardware test (Info line, menu, saved settings, chord/unison/mono/glide, arp tempo vs metronome and
-  MIDI clock, LFO -> cutoff, wave seq mid-note, lab bits). So far confirmed: v8 boots, Lab Reso High 7 = much stronger resonance.
+  MIDI clock, LFO -> cutoff, wave seq mid-note, lab bits). So far confirmed: v8 boots, Info `Mem oooo P01 v8` (RAM at 0xF500 / 0xF6A0 / 0xF740 / 0xF7F0 all
+  read back ok), Lab Reso High 7 = much stronger resonance, a lab setting gave a strange windy sound (which one: TBD).
 - [ ] Rosetta v9 (after the v8 test): submenus (Edit on Wave Seq / Mod1-4 / Arp Mode opens it, Exit back), smarter arp
   (probability, ratchets, octave jumps, accents), chord learn, scale chords, vintage drift, tempo-synced LFO / S&H,
   Euclidean gate, humanize, arp record (Seq mode, step + live record, key transpose, one 32-step pattern in battery RAM).
