@@ -59,6 +59,7 @@ plus `report.txt`. Images are in chip byte order, as dumped. Renaming needs IC12
 | `mcs96_dis.py`, `test_mcs96_dis.py`, `mame_ref/` | MCS-96 disassembler + flow tracer for the D-110 OS ROM (IC19); test against MAME's disassembler |
 | `IC12_MAP.md`, `IC19_MAP.md` | control ROM and OS ROM structure maps |
 | `patch_ic19.py` | patches your own IC19 dump (v1.10): `--banner` sets the version screen text, `--boot-banner` shows it at every power-on, `--plain-words` swaps TVA/TVF/WG... for plain labels |
+| `patch_ic15.py` | puts new OS code into your own IC15 image (free area 0x1F000), called via `patch_ic19.py --ic15-hook` |
 
 ## Credits and legal
 

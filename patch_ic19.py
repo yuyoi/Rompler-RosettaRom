@@ -8,6 +8,10 @@ compares the SC1 button row with 0xEA, then prints the string at 0x2205: one LCD
 --boot-banner shows that screen on every power-on: the combo test `cmpb r70,#0xEA; jne 0x2278` at 0x2269 becomes
 `cmpb r70,#0xFC; je 0x2278`, so only the test-mode combo (0xFC) skips it and test mode still works. --banner-time N
 sets the delay loop count at 0x228E (v1.10: 30, about 4 s; each step is 256*256 djnz loops, ~0.15 s at 12 MHz).
+--ic15-hook makes the banner call code in IC15 (see patch_ic15.py): a trampoline in the free FF area at 0x2191 saves
+rb6/rb7, selects bank page 0x27 (IC15 0x1C000-0x1FFFF at 0x8000-0xBFFF; rb7 is the bank shadow every ISR restores),
+checks the magic word 0x5A1C at 0xB000 (IC15 0x1F000) and calls 0xB002. With an unpatched IC15 it prints the normal
+banner instead. The banner's `lcall api_208a` at 0x2272 is pointed at the trampoline.
 No ROM checksum routine was found in v1.10 (the only byte-summing loops are the SysEx checksums at 0x4518 and 0x4c27),
 so nothing has to be fixed up after a patch.
 """
@@ -51,6 +55,24 @@ def words_patch(rom):
     return out
 
 
+IC15_TRAMP = 0x2191        # free FF area 0x2191-0x21FF (after the ljmp at 0x218e)
+IC15_TRAMP_CODE = bytes.fromhex(
+    'a0b670'        # ld   r70, rb6           ; r71 = rb7 = current bank
+    'c870'          # push r70
+    'b127b7'        # ldb  rb7, #0x27         ; IC15 page 7
+    'c7010001b7'    # stb  rb7, 0x0100
+    'a11c5a72'      # ld   r72, #0x5a1c       ; magic
+    '8b0100b072'    # cmp  r72, 0xb000
+    'd705'          # jne  0x21ae
+    'ef568e'        # lcall 0xb002            ; code in IC15
+    '2003'          # sjmp 0x21b1
+    'efd9fe'        # lcall api_208a          ; fallback: normal banner (r78 = 0x2205)
+    'cc70'          # pop  r70
+    'b071b7'        # ldb  rb7, r71
+    'c7010001b7'    # stb  rb7, 0x0100
+    'f0')           # ret
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('rom')
@@ -59,6 +81,7 @@ def main():
     ap.add_argument('--boot-banner', action='store_true', help='show the version screen on every power-on')
     ap.add_argument('--banner-time', type=int, metavar='N', help='banner delay, 1-255 steps of ~0.15 s (v1.10: 30)')
     ap.add_argument('--plain-words', action='store_true', help='replace TVA/TVF/WG/P-ENV/... with plain labels')
+    ap.add_argument('--ic15-hook', action='store_true', help='banner runs code from IC15 0x1F000 (patch_ic15.py)')
     ap.add_argument('--any-version', action='store_true', help='skip the v1.10 SHA-1 check (addresses may be wrong)')
     a = ap.parse_args()
 
@@ -69,17 +92,20 @@ def main():
     patches = banner_patch(*a.banner) if a.banner else []
     if a.plain_words:
         patches += words_patch(rom)
+    if a.ic15_hook:
+        if set(rom[IC15_TRAMP:IC15_TRAMP + len(IC15_TRAMP_CODE)]) != {0xff}: sys.exit('ic15 hook: 0x2191 is not free')
+        patches += [(IC15_TRAMP, IC15_TRAMP_CODE), (0x2272, bytes.fromhex('ef1cff'))]   # lcall 0x2191
     if a.boot_banner:
         patches += [(0x226a, b'\xfc'), (0x226c, b'\xdf')]           # cmpb r70,#0xfc ; je 0x2278
     if a.banner_time is not None:
         if not 1 <= a.banner_time <= 255: sys.exit('--banner-time: 1-255')
         patches.append((0x228e, bytes([a.banner_time])))         # ldb r75,#N in the delay at 0x228d
     if not patches:
-        sys.exit('nothing to patch (try --banner, --boot-banner, --plain-words)')
+        sys.exit('nothing to patch (try --banner, --boot-banner, --plain-words, --ic15-hook)')
     for addr, new in patches:
         old = bytes(rom[addr:addr + len(new)])
         rom[addr:addr + len(new)] = new
-        print('0x%04x  %s -> %s' % (addr, old.hex(' '), new.hex(' ')) if len(new) < 4 else
+        print('0x%04x  %s -> %s' % (addr, old.hex(' '), new.hex(' ')) if len(new) < 4 or 0xff in old else
               '0x%04x  %r -> %r' % (addr, old.decode('latin-1'), new.decode('latin-1')))
     open(a.out, 'wb').write(rom)
     print('wrote %s (%d bytes, SHA-1 %s)' % (a.out, len(rom), hashlib.sha1(rom).hexdigest()))

@@ -252,3 +252,16 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
 - **Factory test mode** in IC19 bank page 0 (`0x8A00-0x8FFF`, ~1.5 KB): reached by the `0xFC` power-on combo. Useful
   for service, so keep it unless the space is needed.
 
+## Code in IC15 (built 2026-10-07, not yet burned)
+- Bank convention: `rb7` holds the current bank-latch value. `int_extint` switches to `rb8` (per-partial timbre page)
+  and always writes `rb7` back to `0x0100` on exit. So code running from the window must set `rb7` to its own page
+  before it writes the latch, and restore the caller's `rb7` after.
+- IC15 page `0x27` = IC15 `0x1C000-0x1FFFF` at CPU `0x8000-0xBFFF` (pages are `0x20 + offset/0x4000`, consistent with
+  the demo song pointers). `0x1F000-0x1FFFF` is FF in the stock ROM, so CPU `0xB000` is the first code address.
+- `patch_ic19.py --ic15-hook`: trampoline at `0x2191` (free FF). It saves rb6/rb7, selects page `0x27`, checks the magic
+  `1C 5A` at `0xB000` and calls `0xB002`; otherwise it prints the normal banner. It then restores the bank and returns.
+  The banner's `lcall api_208a` at `0x2272` now calls it. A missing or unpatched IC15 means no crash, just the old banner.
+- `patch_ic15.py --hello L1 L2`: writes magic + `ld r78,#0xB00A; lcall api_208a; ret` + text at IC15 `0x1F000` (in all
+  4 copies of a 512 KB burn file). Pass = the boot banner shows the IC15 text. Then larger features (live edits, CC
+  handlers) can go into IC15 the same way, with the demo song area `0xB000-0x1EBFF` as further room.
+
