@@ -29,6 +29,12 @@ for key, k, want in [(0x05, 'cut', [51, 100, 1, 100]), (0x0d, 'cut', [50, 99, 0,
     s.st(0x70, key, 1); s.call(0x503d)
     check('key %02x %s %s' % (key, k, val(k)), val(k) == want)
 check('redraw after keys: %r' % lcd[-1], lcd[-1] == 'Cut 049 Res 10P3Atk 020 Rel 060 ')
+for want in (3, 4, 5, 6, 7, 0, 1, 2):
+    s.st(0x70, 0x0a, 1); s.call(0x503d)
+    if s.ld(0xf6cd, 1) != want: break
+check('Part button cycles P3 -> P8 -> P1 -> P3', s.ld(0xf6cd, 1) == 2 and lcd[-1][15] == '3')
+s.st(0xf6cd, 8, 1); s.st(0x70, 0x0a, 1); s.call(0x503d)
+check('Part button from rhythm part -> P1', s.ld(0xf6cd, 1) == 0)
 s.st(0xf6cd, 8, 1); before = bytes(s.m[0xe1e4:0xe1e4 + 9 * 0xf6]); s.st(0x70, 0x05, 1); s.call(0x503d)
 check('rhythm part untouched', bytes(s.m[0xe1e4:0xe1e4 + 9 * 0xf6]) == before)
 s.st(0xf4e2, 0x7ff0, 2); s.stubs[0x7ff0] = s.stubs[0x5b36] = lambda s: None     # previous screen = stub

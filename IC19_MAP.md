@@ -273,6 +273,9 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   `r74`, so the pointer went into ROM. v2 keeps the max in `r72`. Found with `mcs96_sim.py` (decode-based simulator,
   no I/O or interrupts). `test_ic19_quick.py` runs draw, every key, clamping, the rhythm guard and Exit on the patched
   dump.
+- v3 (built, not yet burned): the Part button (key `0x0A`) steps the current part P1..P8 (`0xF6CD`, the rhythm part is
+  skipped). Reason: on hardware some patches kept their old filter, because the patch plays from another part than
+  P1. Code `0x5112-0x5125`.
 - Lesson for new code: MCS-96 word registers are byte pairs (`r74` = `r74:r75`), so never mix a word and a byte on
   the same pair.
 - Key `0x19` = **Enter held + Edit** (`sub_1bd1` ORs 0x10 into the key code while SC1 bit 0 = Enter is down). In v1.10

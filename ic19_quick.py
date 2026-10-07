@@ -2,6 +2,7 @@
 
     Cut --- Res --P1      Group +/-  : filter cutoff  (all 4 partials, 0-100)
     Atk --- Rel ---       Bank +/-   : resonance      (0-30)
+                          Part       : next part (P1..P8)
                           Number +/- : amp env T1 (attack, 0-100)
                           Part +/-   : amp env T5 (release, 0-100)      Exit: back
 
@@ -47,7 +48,7 @@ def build():
     D = Asm(0x2019)
     D.L('menu'); D.w(0)                # init -> qdraw (fixed below)
     keys = [(0x01, POP_STATE), (0x05, 'cut_up'), (0x0d, 'cut_dn'), (0x06, 'res_up'), (0x0e, 'res_dn'),
-            (0x07, 'atk_up'), (0x0f, 'atk_dn'), (0x04, 'rel_up'), (0x0c, 'rel_dn')]
+            (0x07, 'atk_up'), (0x0f, 'atk_dn'), (0x04, 'rel_up'), (0x0c, 'rel_dn'), (0x0a, 'part_next')]
     for k, t in keys: D.raw('%02x21' % k); D.w(0)
     D.raw('00')
     D.L('tpl'); D.raw(b'\x00' + b'Cut --- Res --P-' + b'Atk --- Rel --- ' + b'\x00')
@@ -92,6 +93,13 @@ def build():
         C.raw('a1'); C.w(0xf6ac + pos); C.raw('78')                        # ld r78,#buf+pos
         C.lcall(fn)
     C.L('flush'); C.ljmp(SUB_525B)
+    C.L('part_next')           # Part button: current part 1..8 (rhythm part skipped), wraps
+    C.raw('b301cdf670')        # ldb r70,0xf6cd
+    C.raw('1770')              # incb r70
+    C.raw('990870'); C.jcc(0xd3, 'pn_st')                                # cmpb r70,#8 ; jnc pn_st (r70 < 8)
+    C.raw('1170')              # clrb r70
+    C.L('pn_st'); C.raw('c701cdf670')                                  # stb r70,0xf6cd
+    C.raw('f0')                # ret
     code = C.done(D.lab)
     assert C.pc <= 0x5138, hex(C.pc)
     data = bytearray(D.done())

@@ -102,7 +102,7 @@ Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-12
 Works on a real D-110 (OS v1.10). It only changes IC19, the socketed OS EPROM, and works with a stock IC15/IC7/IC8.
 - **Quick screen:** hold **Enter** + press **Edit** (this used to start the demo). Group +/- = filter cutoff,
   Bank +/- = resonance, Number +/- = attack, Part +/- = release. Each step moves all 4 partials of the current part.
-  Exit = back. Changes apply from the next note. Cutoff/resonance only affect synth partials (SQU/SAW), not PCM.
+  Part (plain button) = next part P1..P8. Exit = back. Changes apply from the next note. Cutoff/resonance only affect synth partials (SQU/SAW), not PCM.
 - **Plain words:** WG/P-ENV/P-LFO/TVF/TVA... become OS/Pitch/Vibr./Flt/Amp...
 - **Boot banner:** your own 2 x 16 characters at power-on.
 
