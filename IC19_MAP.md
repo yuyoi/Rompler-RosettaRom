@@ -249,6 +249,10 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   the big win. The CPU reaches IC12 through the bank window (page `0x20 + n`, 16 KB each at `0x8000-0xBFFF`) and can run
   code from there. IC15 is already reflashed for the sample mod, so new code and tables can live there. IC19 then
   only needs small hooks.
+- **Partial edit pages (WG ... TVA-ENV)**: one routine per parameter, picked through `jtab_662e` (59 entries,
+  indexed by the partial byte number, called from `0x61AE`). The code is compact and shared: the TVA envelope entries
+  (50-58) reuse the TVF envelope routines (`0x6916-0x6942`). TVF-only code (cutoff ... bias, `0x687A-0x6903`) is
+  ~140 B. Removing it would cost filter editing for little space, so it stays.
 - **Factory test mode** in IC19 bank page 0 (`0x8A00-0x8FFF`, ~1.5 KB): reached by the `0xFC` power-on combo. Useful
   for service, so keep it unless the space is needed.
 
