@@ -252,7 +252,10 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
 - **Factory test mode** in IC19 bank page 0 (`0x8A00-0x8FFF`, ~1.5 KB): reached by the `0xFC` power-on combo. Useful
   for service, so keep it unless the space is needed.
 
-## Code in IC15 (built 2026-10-07, not yet burned)
+## Code in IC15 (works on hardware, 2026-10-07)
+- **Hardware test passed:** IC19 `--banner ... --boot-banner --banner-time 15 --plain-words --ic15-hook`
+  (MD5 `f61da3f8...`) with a custom-table IC15 burn file plus `patch_ic15.py --hello`. The boot screen shows the
+  IC15 text. So bank page `0x27` = IC15 `0x1C000`, and code runs from the bank window and returns cleanly.
 - Bank convention: `rb7` holds the current bank-latch value. `int_extint` switches to `rb8` (per-partial timbre page)
   and always writes `rb7` back to `0x0100` on exit. So code running from the window must set `rb7` to its own page
   before it writes the latch, and restore the caller's `rb7` after.
