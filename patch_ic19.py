@@ -12,6 +12,8 @@ sets the delay loop count at 0x228E (v1.10: 30, about 4 s; each step is 256*256 
 rb6/rb7, selects bank page 0x27 (IC15 0x1C000-0x1FFFF at 0x8000-0xBFFF; rb7 is the bank shadow every ISR restores),
 checks the magic word 0x5A1C at 0xB000 (IC15 0x1F000) and calls 0xB002. With an unpatched IC15 it prints the normal
 banner instead. The banner's `lcall api_208a` at 0x2272 is pointed at the trampoline.
+--quick replaces the demo with a Quick screen (Enter + Edit): cutoff, resonance, attack, release for all partials
+of the current part. Code and layout in ic19_quick.py.
 No ROM checksum routine was found in v1.10 (the only byte-summing loops are the SysEx checksums at 0x4518 and 0x4c27),
 so nothing has to be fixed up after a patch.
 """
@@ -82,6 +84,7 @@ def main():
     ap.add_argument('--banner-time', type=int, metavar='N', help='banner delay, 1-255 steps of ~0.15 s (v1.10: 30)')
     ap.add_argument('--plain-words', action='store_true', help='replace TVA/TVF/WG/P-ENV/... with plain labels')
     ap.add_argument('--ic15-hook', action='store_true', help='banner runs code from IC15 0x1F000 (patch_ic15.py)')
+    ap.add_argument('--quick', action='store_true', help='Enter+Edit opens a Quick screen instead of the demo')
     ap.add_argument('--any-version', action='store_true', help='skip the v1.10 SHA-1 check (addresses may be wrong)')
     a = ap.parse_args()
 
@@ -95,17 +98,24 @@ def main():
     if a.ic15_hook:
         if set(rom[IC15_TRAMP:IC15_TRAMP + len(IC15_TRAMP_CODE)]) != {0xff}: sys.exit('ic15 hook: 0x2191 is not free')
         patches += [(IC15_TRAMP, IC15_TRAMP_CODE), (0x2272, bytes.fromhex('ef1cff'))]   # lcall 0x2191
+    if a.quick:
+        import ic19_quick
+        for at, old in ic19_quick.OLD.items():
+            if rom[at:at + len(old)] != old: sys.exit('quick: unexpected bytes at 0x%04x' % at)
+        if set(rom[0x2019:0x2080]) != {0xff}: sys.exit('quick: 0x2019 is not free')
+        patches += ic19_quick.build()
     if a.boot_banner:
         patches += [(0x226a, b'\xfc'), (0x226c, b'\xdf')]           # cmpb r70,#0xfc ; je 0x2278
     if a.banner_time is not None:
         if not 1 <= a.banner_time <= 255: sys.exit('--banner-time: 1-255')
         patches.append((0x228e, bytes([a.banner_time])))         # ldb r75,#N in the delay at 0x228d
     if not patches:
-        sys.exit('nothing to patch (try --banner, --boot-banner, --plain-words, --ic15-hook)')
+        sys.exit('nothing to patch (try --banner, --boot-banner, --plain-words, --ic15-hook, --quick)')
     for addr, new in patches:
         old = bytes(rom[addr:addr + len(new)])
         rom[addr:addr + len(new)] = new
-        print('0x%04x  %s -> %s' % (addr, old.hex(' '), new.hex(' ')) if len(new) < 4 or 0xff in old else
+        print('0x%04x  %d bytes' % (addr, len(new)) if len(new) > 40 else
+              '0x%04x  %s -> %s' % (addr, old.hex(' '), new.hex(' ')) if len(new) < 4 or 0xff in old or len(new) < 8 else
               '0x%04x  %r -> %r' % (addr, old.decode('latin-1'), new.decode('latin-1')))
     open(a.out, 'wb').write(rom)
     print('wrote %s (%d bytes, SHA-1 %s)' % (a.out, len(rom), hashlib.sha1(rom).hexdigest()))

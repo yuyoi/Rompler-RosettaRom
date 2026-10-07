@@ -268,3 +268,19 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   4 copies of a 512 KB burn file). Pass = the boot banner shows the IC15 text. Then larger features (live edits, CC
   handlers) can go into IC15 the same way, with the demo song area `0xB000-0x1EBFF` as further room.
 
+## Quick screen (built 2026-10-07, not yet burned)
+- Key `0x19` = **Enter held + Edit** (`sub_1bd1` ORs 0x10 into the key code while SC1 bit 0 = Enter is down). In v1.10
+  it starts the demo (`0x4FA9` `=` `sub_5036`). `patch_ic19.py --quick` (code in `ic19_quick.py`) makes it `>` push
+  state to a new screen. The demo player can no longer be reached (its IC15 song data stays and is just unused).
+- Screen: `Cut --- Res --P1 / Atk --- Rel ---`. Group +/- = cutoff (partial byte `0x17`, 0-100), Bank +/- = resonance
+  (`0x18`, 0-30), Number +/- = TVA T1 (`0x31`), Part +/- = TVA T5 (`0x35`), Exit = pop state (`0x5391`). Each step
+  changes all 4 partials of the current part (`0xF6CD`; part 8 = rhythm is skipped) in its timbre edit copy, clamped.
+  The values shown are partial 1's.
+- UI plumbing used: a state handler is `ld r78,#menu; ljmp 0x53A3`. After any key the interpreter calls the handler
+  again with event `0xFF`, so the menu's init routine redraws. LCD line buffer = `0xF6AB` (address byte) + 32 chars,
+  flushed by `sub_525b`. `sub_502b` copies `r74` bytes `[r78]+` -> `[r76]+`. `sub_5297`/`sub_527d` write 3/2 decimal
+  digits of `r70` at `[r78]`. `sub_7d67` (window strings) leaves the bank latch at page 0.
+- Space: code `0x503D-0x5111` (old demo menu code, only reachable via `0x5036`, which now also points at the new
+  menu), menu + template `0x2019-0x2061`. No edited (`*`) flag is set yet, so switching patch drops the changes
+  without a prompt.
+
