@@ -353,7 +353,8 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   difference.
 - Synth partial control byte `0xEF80`/`0x0D00` (`0x3706-0x377C`): bits 0-4 structure (tables `0x1725`/`0x17BE`), bit 5
   from `ra8`, bit 6 = waveform (timbre byte 4 bit 0), bit 7 = PCM. Resonance `0xEF81`/`0x0D01` = (r+1) | ((r+1)<<3 &
-  0xE0), r = 0-30, so bits 5-7 copy bits 2-4 (the Lab items set them on their own).
+  0xE0), r = 0-30, so bits 5-7 copy bits 2-4 (the Lab items set them on their own;
+  hardware, v8: bits 5-7 = 110 (Lab Reso High 7) with a normal reso value gives much stronger resonance than stock).
 - Amplitude: no multiplier, attenuations are subtracted (`0x9B` - part level - CC7 - CC11 - bias `0xEDC1[p]` - partial
   level - velocity `0xF180[p]`), at note-on, each envelope stage (`int_extint`) and the sustain re-ramp
   (`0x2C23`, stage 5). The Level mod destination changes `0xF180[p]`, so it is heard from the next stage / in sustain.
