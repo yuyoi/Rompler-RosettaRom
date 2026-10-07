@@ -58,7 +58,7 @@ def build():
     for name, off, mx in [('cut', CUT, 100), ('res', RES, 30), ('atk', ATK, 100), ('rel', REL, 100)]:
         C.L(name + '_up'); C.raw('b10176'); C.sjmp(name)                  # ldb r76,#1
         C.L(name + '_dn'); C.raw('b1ff76')                                 # ldb r76,#0xff
-        C.L(name); C.raw('ad%02x74' % off); C.raw('b1%02x75' % mx); C.sjmp('adj')   # ldbze r74,#off ; ldb r75,#max
+        C.L(name); C.raw('ad%02x74' % off); C.raw('b1%02x72' % mx); C.sjmp('adj')   # ldbze r74,#off ; ldb r72,#max (not r75: high byte of r74)
     C.L('adj')
     C.raw('af01cdf650')        # ldbze r50, 0xf6cd
     C.raw('990850'); C.jcc(0xdb, 'ret')                                    # cmpb r50,#8 ; jc ret (rhythm part: no edit)
@@ -68,8 +68,8 @@ def build():
     C.L('loop')
     C.raw('b27470')            # ldb r70,[r74]
     C.raw('747670')            # addb r70,r76
-    C.raw('987570'); C.jcc(0xd1, 'ok')                                     # cmpb r70,r75 ; jnh ok
-    C.raw('b07570')            # ldb r70,r75   (over max)
+    C.raw('987270'); C.jcc(0xd1, 'ok')                                     # cmpb r70,r72 ; jnh ok
+    C.raw('b07270')            # ldb r70,r72   (over max)
     C.jbc(0x76, 7, 'ok')       # delta +1: keep max
     C.raw('1170')              # clrb r70      (delta -1 wrapped below 0)
     C.L('ok')

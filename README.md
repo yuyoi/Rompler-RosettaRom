@@ -60,6 +60,7 @@ plus `report.txt`. Images are in chip byte order, as dumped. Renaming needs IC12
 | `IC12_MAP.md`, `IC19_MAP.md` | control ROM and OS ROM structure maps |
 | `patch_ic19.py` | patches your own IC19 dump (v1.10): `--banner` sets the version screen text, `--boot-banner` shows it at every power-on, `--plain-words` swaps TVA/TVF/WG... for plain labels |
 | `ic19_quick.py` | Quick screen (Enter + Edit): cutoff/reso/attack/release for all partials, used by `patch_ic19.py --quick` |
+| `mcs96_sim.py`, `test_ic19_quick.py` | small MCS-96 simulator (no I/O); runs the Quick screen on your patched dump |
 | `patch_ic15.py` | puts new OS code into your own IC15 image (free area 0x1F000), called via `patch_ic19.py --ic15-hook` |
 
 ## Credits and legal
