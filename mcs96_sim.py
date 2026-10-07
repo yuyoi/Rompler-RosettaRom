@@ -13,6 +13,7 @@ class Sim:
         self.bank = 0
         self.Z = self.N = self.C = self.V = self.ST = 0
         self.pc, self.stubs, self.trace, self.steps = 0, {}, [], 0
+        self.odd = []     # (pc, addr) of word accesses at odd addresses: the real CPU does not do these
         self.st(0x18, 0xf9d0, 2)
 
     # --- memory ---
@@ -53,12 +54,15 @@ class Sim:
 
     def rd(self, o, size):
         if o[0] == '#': return o[1]
-        v = self.ld(self.ea(o), size)
+        a = self.ea(o)
+        if size == 2 and a & 1: self.odd.append((self.cur, a))
+        v = self.ld(a, size)
         if o[0] == '[]' and o[2]: self.st(o[1], self.ld(o[1], 2) + size, 2)
         return v
 
     def wr(self, o, v, size):
         a = self.ea(o)
+        if size == 2 and a & 1: self.odd.append((self.cur, a))
         self.st(a, v, size)
         if o[0] == '[]' and o[2]: self.st(o[1], self.ld(o[1], 2) + size, 2)
 
@@ -86,7 +90,7 @@ class Sim:
             if self.steps > max_steps: raise RuntimeError('runaway at %04x' % self.pc)
 
     def step(self):
-        pc = self.pc
+        pc = self.cur = self.pc
         if pc in self.stubs:
             self.stubs[pc](self); self.pc = self.pop(); return
         i = decode(lambda a: self.ld(a, 1), pc)

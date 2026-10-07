@@ -404,6 +404,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
 
     ; ---- Rosetta menu. r70 = key (0xFF = draw). Return r70 = 1 to leave.
     ;   Group +/- : item      Bank +/- : value +/-1      Number +/- : value +/-10      Exit : back
+    ;   Part : current part P1..P8 (0xF6CD, as on the Quick screen; it reads 0xFF until a part is picked)
     ui:     lcall ramchk
             cmpb  r70, #0xff
             je!   draw
@@ -414,7 +415,9 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
             cmpb  r72, #NITEMS
             jnc   u1a
             clrb  r72
-    u1a:    cmpb  r70, #0x05
+    u1a:    cmpb  r70, #0x0a
+            je    u_part
+            cmpb  r70, #0x05
             je    u_next
             cmpb  r70, #0x0d
             je    u_prev
@@ -441,6 +444,13 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
             jnc   u_st
             ldb   r72, #NITEMS-1
     u_st:   stb   r72, MIDX
+            sjmp  draw
+    u_part: ldb   r70, PART
+            incb  r70
+            cmpb  r70, #8
+            jnc   up1
+            clrb  r70
+    up1:    stb   r70, PART
             sjmp  draw
     u_val:  lcall item
             cmpb  r7b, #4
@@ -523,9 +533,8 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
     d_pt:   cmpb  r7e, zero
             jne   d_p1
             ld    r70, #0x6c41          ; 'Al'
-            st    r70, [r76]+
-            ldb   r70, #0x6c
-            stb   r70, [r76]
+            lcall put2
+            stb   r71, [r76]
             sjmp  show
     d_p1:   ldb   r70, #0x50
             stb   r70, [r76]+
@@ -544,7 +553,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
             ld    r74, #0xf6a0
             lcall rtest
             ld    r70, #0x5020          ; ' P'
-            st    r70, [r76]+
+            lcall put2
             ldb   r7e, PART
             ldb   r70, r7e
             shrb  r70, #4
@@ -574,7 +583,9 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
             sjmp  rt_w
     rt_ng:  ld    r70, #0x474e          ; 'NG'
     rt_w:   stb   r72, [r74]
-            st    r70, [r76]+
+    ; put2: r70, r71 at [r76]+ (byte stores: the LCD buffer pointer can be odd)
+    put2:   stb   r70, [r76]+
+            stb   r71, [r76]+
             ret
     show:   ld    r78, #LCDBUF
             lcall API_LCD
@@ -616,7 +627,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
     chname = ''.join('db %s\n' % ', '.join(str(b) for b in n.ljust(8)[:8].encode()) for n, _ in CHORDS)
     chiv = ''.join('db %s\n' % ', '.join(str(b) for b in (iv + [0, 0, 0, 0])[:4]) for _, iv in CHORDS)
     ban = (banner[0].ljust(16)[:16] + banner[1].ljust(16)[:16]).encode()
-    C.src('items:\n' + items + 'chname:\n' + chname + 'chiv:\n' + chiv +
+    C.src('even\nitems:\n' + items + 'chname:\n' + chname + 'chiv:\n' + chiv +
           'inftxt:\n db 77, 101, 109, 32\n' +
           'bantxt:\n db 0\n db %s\n db 0\n' % ', '.join(str(b) for b in ban))
     C.syms['NCHORDS'] = len(CHORDS)

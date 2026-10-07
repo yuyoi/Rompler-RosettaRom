@@ -14,7 +14,8 @@ by decoding it again (asm text and disassembly must agree).
 `je! label` (any jcc + '!') = far branch: the inverse jcc over an ljmp (5 bytes).
 Operands: rNN / sfr names (r70, rb7, int_mask, sp, zero), #imm, [rNN], [rNN]+, off[rNN], plain address (= long
 indexed off zero; registers 0x00-0xff are written rNN). Numbers and symbols may be Python expressions (labels, the
-symbol dict, hi(x)/lo(x)). `db` / `dw` emit data.
+symbol dict, hi(x)/lo(x)). `db` / `dw` emit data, `even` pads to an even address (word tables: the CPU cannot
+read or write a word at an odd address).
 """
 import re
 from mcs96_dis import decode, fmt_ins, SFR8_R, SFR8_W, SFR16_R, SFR16_W
@@ -94,6 +95,7 @@ class Asm:
         mn, _, rest = ins.partition(' ')
         ops = [o.strip() for o in re.split(r',(?![^\[]*\])', rest)] if rest.strip() else []
         rel8 = lambda t, n: (s.val(t, env) - (pc + n))
+        if mn == 'even': return b'\xff' if pc & 1 else b''
         if mn in ('db', 'dw'):
             out = b''
             for o in ops:
@@ -155,7 +157,7 @@ class Asm:
             except AsmError: raise
             except Exception as e:
                 raise AsmError('%s: %s' % (x, e))
-            if pas == 2 and not x.startswith(('db', 'dw')):
+            if pas == 2 and not x.startswith(('db', 'dw', 'even')):
                 if x.split()[0].endswith('!'):
                     s.check(x.split()[0][:-1] + ' x', b[:2], pc, env, inverse=True); s.check('ljmp x', b[2:], pc + 2, env)
                 else: s.check(x, b, pc, env)

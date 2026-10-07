@@ -137,7 +137,9 @@ Details: `IC19_MAP.md` ("Stage 3", "Quick screen"). Code: `patch_ic19.py`, `ic19
 v6 plus new features whose code lives in IC15 (page 0x27, the free 4 KB at IC15 0x1F000). IC19 gets only small hooks.
 With a stock IC15 the hooks find no magic word and the unit behaves exactly like v6.
 - **Rosetta menu:** on the Quick screen press **Edit**. Group +/- = item, Bank +/- = value -/+1, Number +/- = -/+10,
-  Exit = back. Settings reset at power-off (v7b; v7 tried battery RAM and it did not hold them). Info = memory test.
+  Part = current part (P1-P8, also on the Quick screen; pick one first, it shows P- until then), Exit = back.
+  Settings reset at power-off. Info = memory test and the current part byte in hex.
+  v7c fixes the garbage values and dead edits of v7/v7b (a menu table word read at an odd address).
   - **Wave Scan (CC70):** offset 0-127 on the PCM wave of the current part's PCM partials, live, also from MIDI CC70.
     The pitch is corrected for each wave's tuning. (Experiment: does the LA32 switch waves mid-note?)
   - **Random Wave:** each note picks a PCM wave offset 0..N at random.

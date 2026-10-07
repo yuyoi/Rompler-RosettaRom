@@ -343,7 +343,12 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
 - Amplitude: no multiplier, attenuations are subtracted (`0x9B` - part level - CC7 - CC11 - bias `0xEDC1[p]` - partial
   level - velocity `0xF180[p]`), at note-on, each envelope stage (`int_extint`) and the sustain re-ramp. Vector
   synthesis candidate: add to `0xF180[p]`.
-- Free RAM: `0xF600-0xF6A3` looked unreferenced, but on hardware (v7) settings kept at `0xF610` read back as garbage
-  and edits did not stick (cause unknown). v7b keeps settings/state in the never-used registers `0x1A-0x33` (lost at
-  power-off) and only the per-partial wave offset table at `0xF630`; the menu item Info tests `0xF630` and `0xF6A0`.
-  Other never-used registers: `0x34-0x3F`, `0x90-0x9F`.
+- Free RAM: `0xF600-0xF6A3` looks unreferenced. On hardware (v7b Info item) `0xF630` and `0xF6A0` pass a write/read
+  test. v7/v7b showed garbage values and edits that did not stick; the cause was a word read at an odd address
+  (`ld r74,16[r78]` from the menu table, which sat at an odd address), not the RAM. v7b keeps settings in the
+  never-used registers `0x1A-0x33` (lost at power-off), the per-partial wave offset table at `0xF630`. Other
+  never-used registers: `0x34-0x3F`, `0x90-0x9F`.
+- **Word accesses must be at even addresses.** The real CPU does not do odd ones (seen on the v7b Info line: a word
+  store to an odd LCD buffer address wrote only one byte). `mcs96_sim` logs them in `Sim.odd`, `test_rosetta.py`
+  fails on any, and `mcs96_asm` has `even` to align word tables.
+- `0xF6CD` (current part) reads `0xFF` until a part is picked with the Part button (Quick screen or Rosetta menu).

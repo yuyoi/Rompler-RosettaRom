@@ -20,8 +20,12 @@ def check(name, ok):
     print('%-52s %s' % (name, 'ok' if ok else 'FAIL'))
 
 
+sims = []
+
+
 def new(ic15img):
     s = Sim(ic19, ic15img)
+    sims.append(s)
     s.lcd, s.calls = [], []
     s.stubs[0x208a] = lambda s: s.lcd.append(bytes(s.ld(s.ld(0x78, 2) + 1 + i, 1) for i in range(32)).decode('latin-1'))
     for a, n in ((0x24fc, 'on'), (0x245d, 'off'), (0x3de2, 'alloff'), (0x53cb, 'redraw')):
@@ -64,7 +68,11 @@ check('Chord Part: %r' % s.lcd[-1][:19], s.lcd[-1].startswith('Chord Part') and 
 keys(0x0d, 0x06, 0x06, 0x06, 0x06)                  # Chord: Major
 check('Chord = Major (and all notes off sent): %r' % s.lcd[-1][16:24],
       ram(s, 'CHORD') == 4 and s.lcd[-1][16:24] == 'Major   ' and sum(c[0] == 'alloff' for c in s.calls) == 32)
-s.calls.clear(); keys(0x01)
+s.st(0xf6cd, 0xff, 1); keys(0x05, 0x05, 0x05, 0x0a) # -> Wave Scan; no part picked yet, Part key -> P1
+check('Part key: 0xFF -> P1: %r' % s.lcd[-1], s.ld(0xf6cd, 1) == 0 and s.lcd[-1].endswith('P1'))
+keys(*[0x0a] * 7); m = s.lcd[-1]; keys(0x0a)
+check('Part key: P8 -> P1', m.endswith('P8') and s.ld(0xf6cd, 1) == 0)
+s.st(0xf6cd, 2, 1); s.calls.clear(); keys(0x01)
 check('Exit pops the state and redraws', s.ld(0xb6, 1) == 0 and s.calls[-1][0] == 'redraw')
 
 # chord memory on note on / off
@@ -128,5 +136,7 @@ check('... pitch follows (wave 10 -> 30), regs and int_mask kept',
       (s.ld(0x42, 2), s.ld(0x44, 2), s.ld(0x46, 1), s.ld(0x50, 2)) == (0x1234, 0x4605, 20, 0x20) and s.ld(0x08, 1) == 0xff)
 s.st(0x50, 0x80, 2); s.call(0x3bba)
 check('CC70 on the rhythm part: nothing', s.ld(R.RAM['WAVE'] + 8, 1) == 0)
+odd = sorted({'%04x->%04x' % x for t in sims for x in t.odd})
+check('no word access at an odd address %s' % odd, not odd)
 print("IC15 code %d bytes" % len(R.build_ic15(lab)[0]))
 sys.exit(1 if fails else 0)
