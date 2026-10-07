@@ -126,4 +126,23 @@ if os.path.exists(MAME):
         fails += compare('ctrl/ic19.bin', 0x1000, 0x7ff8)
 else:
     print('no mame_ref/mame_dasm: run  sh mame_ref/build.sh  for the MAME cross-check')
+
+# ---- tracer on the real ROM (v1.10): UI menus, sparse and byte-pair jump tables ----
+if os.path.exists('ctrl/ic19.bin'):
+    from mcs96_dis import D110, build
+    t = build(D110(open('ctrl/ic19.bin', 'rb').read()))
+    checks = [
+        ('no tracer problems', [m for _, m in t.problems if not m.startswith('note:')] == []),
+        ('menu 0x4f8e decoded', t.menu_rows.get(0x4f93, (0, ''))[1].startswith('key 0a Part')),
+        ('menu entry 6 bytes', t.menu_rows.get(0x4f97, (0,))[0] == 6),
+        ('MIDI CC table 128 entries', t.jtabs.get(0x3bce, (0,))[0] == 128),
+        ('CC7 handler traced', 0x3cff in t.ins),
+        ('byte-pair table 0x59cd', 0x59cd in t.jtabs),
+        ('state handler via 0x57d1', 0x5913 in t.ins),
+    ]
+    for name, ok in checks:
+        if not ok:
+            fails += 1
+            print('FAIL tracer: %s' % name)
+    print('tracer checks: %d/%d ok' % (sum(ok for _, ok in checks), len(checks)))
 sys.exit(1 if fails else 0)

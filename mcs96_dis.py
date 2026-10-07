@@ -7,9 +7,9 @@
 
 Decoding follows the 8x9x opcode map (no 80C196 extensions); test_mcs96_dis.py checks every decode against
 MAME's i8x9x disassembler. Code is found by tracing from the reset address (0x2080) and the interrupt vectors
-(0x2000-0x2011), then following jump tables, code pointers held in registers that 'br' jumps through, and ROM
-code the OS copies into RAM. Anything not reached is listed as data (the UI's descriptor tables still hide
-handlers: see IC19_MAP.md).
+(0x2000-0x2011), then following jump tables (word or byte-pair, dense or sparse), code pointers held in registers
+that 'br' jumps through, the UI menu descriptors (UI_MENU) and ROM code the OS copies into RAM. Anything not
+reached is listed as data. See IC19_MAP.md for what the traced code does.
 
 D-110 memory map (MAME roland_d10.cpp, CPU N8097BH @ 12 MHz, 8-bit bus):
   0x0000-0x00FF  CPU registers / SFRs        0x0100 bank latch, 0x0200 system out, 0x021A/0x021C buttons,
@@ -39,7 +39,21 @@ VECTORS = [(0x2000, 'int_timer_ovf'), (0x2002, 'int_ad_done'), (0x2004, 'int_hsi
 RESET = 0x2080
 
 D110_IO = {0x0100: 'BANK', 0x0200: 'SYS_OUT', 0x021a: 'BTN_SC0', 0x021b: 'BTN_SC0+1', 0x021c: 'BTN_SC1',
-           0x021d: 'BTN_SC1+1', 0x0300: 'LCD_DATA', 0x0380: 'LCD_CTRL'}
+           0x021d: 'BTN_SC1+1', 0x0280: 'LCD_AUX', 0x0300: 'LCD_DATA', 0x0380: 'LCD_CTRL', 0x0400: 'REV_LATCH_A',
+           0x0800: 'REV_LATCH_B'}           # 0x021a written = output latch; 0x0c00-0x0dff = LA32 (see IC19_MAP.md)
+
+# UI menu interpreter (v1.10). A state handler does 'ld r78, #menu' + jump to UI_MENU. Menu: dw init routine,
+# then entries until 0x00: 'FE lo hi' includes another entry list; otherwise key, type, dw operand, and when
+# type bit 7 is set a further dw routine run after the action. type & 0x7f is a letter from UI_TYPES; its stub
+# in UI_ACTIONS calls the operand (always code) and then acts on what it returns (r78 = variable, r75 = max).
+UI_MENU, UI_MENU_SIG, UI_TYPES, UI_ACTIONS, UI_ACTIONS_BR = 0x53a3, bytes.fromhex('99ff70df'), 0x5475, 0x5485, 0x5472
+# key codes: 0x01-0x08 = BTN_SC0 bits 7..0, 0x09-0x10 = BTN_SC1 bits 7..0 (scan at 0x1a95); names from MAME
+UI_KEYS = {0x01: 'Exit', 0x02: 'Patch', 0x03: 'Timbre', 0x04: 'Part+', 0x05: 'Group+', 0x06: 'Bank+', 0x07: 'Number+',
+           0x08: 'Write', 0x09: 'Edit', 0x0a: 'Part', 0x0b: 'System', 0x0c: 'Part-', 0x0d: 'Group-', 0x0e: 'Bank-',
+           0x0f: 'Number-', 0x10: 'Enter'}
+UI_ACTION_NAMES = {'!': 'call', '>': 'push state', '=': 'set state', '+': '+1 (max r75)', '-': '-1 (min 0)',
+                   'i': '+10 (max r75)', 'd': '-10 (min 0)', 'I': '+1 bits 0-2', 'J': '+1 bits 3-5',
+                   'K': 'set bit 6', 'D': '-1 bits 0-2', 'E': '-1 bits 3-5', 'F': 'clear bit 6'}
 
 
 def region(a):
@@ -319,6 +333,10 @@ class Trace:
         self.data_refs = {}    # addr -> set of source addrs (absolute data refs into the ROM)
         self.outside = set()   # flow targets outside known code space (retried after RAM copies are found)
         self.ptr_imm = {}      # instruction addr -> code address its immediate operand points to
+        self.menu_rows = {}    # addr -> (length, text, label targets, note): decoded UI menu descriptors
+        self.menu_bad = set()  # menus that failed to decode (reported once)
+        self.menu_imm = {}     # instruction addr -> menu its 'ld r78, #imm' passes to the interpreter
+        self.menu_bytes = set()
 
     def in_code(self, a):
         if 0x9000 <= a < 0xc000: return False                  # window aliases of 0x1000-0x3fff: not code
@@ -343,7 +361,8 @@ class Trace:
                     self.problems.append((a, 'jump into the middle of the instruction at 0x%04x' % self.owner[a]))
                     break
                 i = decode(self.rom, a)
-                clash = [b for b in range(a, a + i.n) if b in self.owner or b in self.jtab_bytes()]
+                clash = [b for b in range(a, a + i.n)
+                         if b in self.owner or b in self.jtab_bytes() or b in self.menu_bytes]
                 if clash:
                     self.problems.append((a, 'instruction overlaps code/table at 0x%04x' % clash[0]))
                     break
@@ -381,7 +400,8 @@ class Trace:
             while a not in seen and a not in self.ins:
                 if not self.in_code(a) or a in self.owner or a in own: return False, len(seen)
                 i = decode(self.rom, a)
-                if i.flow == 'bad' or any(b in self.owner or b in own or b in jb for b in range(a, a + i.n)):
+                if i.flow == 'bad' or any(b in self.owner or b in own or b in jb or b in self.menu_bytes
+                                          for b in range(a, a + i.n)):
                     return False, len(seen)
                 seen.add(a)
                 own.update(range(a, a + i.n))
@@ -445,14 +465,23 @@ class Trace:
         return found
 
     def find_jump_tables(self):
-        """Code pointer tables: 'ld rX, TABLE[rY]' with TABLE in fixed ROM (or in the window just before a
-        'br [rX]' in the same block) and rX a register some 'br [rX]' jumps through. Entries are read until one
-        does not point to code, reaches the table's own targets, or passes a 'cmp rY, #N' bound."""
+        """Code pointer tables: 'ld rX, TABLE[rY]' (or the pair 'ldb rX, TABLE[rY]' + 'ldb rX+1, TABLE+1[rY]')
+        with TABLE in fixed ROM (or in the window just before a 'br [rX]' in the same block) and rX a register
+        some 'br [rX]' jumps through. Entries are read until one does not point to code, reaches the table's own
+        targets, or passes a 'cmp rY, #N' bound. When the load is followed by 'cmp rX, #0' the table is sparse:
+        zero entries mean 'no handler' (the MIDI controller table at 0x3bce)."""
         br_regs = {i.ops[0][1] for i in self.ins.values() if i.mn == 'br'}
         new = []
         for a, i in sorted(self.ins.items()):
-            if not (i.mn == 'ld' and i.ops[1][0] == 'ix' and i.ops[1][3] and i.ops[1][2] != 0): continue
-            rx, base = i.ops[0][1], i.ops[1][1]
+            if not (i.mn in ('ld', 'ldb') and i.ops[1][0] == 'ix' and i.ops[1][3] and i.ops[1][2] != 0): continue
+            rx, base, last = i.ops[0][1], i.ops[1][1], i
+            if i.mn == 'ldb':
+                hi = self.ins.get(a + i.n)
+                if not (rx % 2 == 0 and hi and hi.mn == 'ldb' and hi.ops[0][1] == rx + 1 and hi.ops[1][0] == 'ix'
+                        and hi.ops[1][1:3] == (base + 1, i.ops[1][2])): continue
+                last = hi
+            nx = self.ins.get(last.a + last.n)
+            holes = bool(nx and nx.mn == 'cmp' and nx.ops[0][:2] == ('r', rx) and nx.ops[1][:2] == ('#', 0))
             if rx not in br_regs or base in self.jtabs or not self.in_code(base): continue
             if not 0x1000 <= base < 0x8000 and not self._br_follows(a, rx): continue
             limit, p = 256, a
@@ -469,19 +498,25 @@ class Trace:
             while n < limit:
                 e = base + 2 * n
                 if e in self.owner or e + 1 in self.owner or (n and e in self.labels) or e in tgts: break
+                if e in self.menu_bytes: break
                 if tgts and base < min(tgts) <= e: break
                 tgt = self.rom.word(e)
+                if tgt == 0 and holes:
+                    n += 1
+                    continue
                 if not self.in_code(tgt) or decode(self.rom, tgt).flow == 'bad': break
                 if (tgt < 0x8000) != (base < 0x8000): break             # fixed tables -> fixed code etc.
                 if tgt in self.owner and tgt not in self.ins: break      # middle of a known instruction
                 tgts.add(tgt)
                 n += 1
-            if n >= 2:
+            while n and holes and self.rom.word(base + 2 * (n - 1)) == 0: n -= 1
+            if len(tgts) >= 2:
                 self.jtabs[base] = (n, a)
                 self._jb = None
                 self.add_label(base, 'loc', 'jtab_%04x' % base)
                 for k in range(n):
                     tgt = self.rom.word(base + 2 * k)
+                    if tgt == 0: continue
                     self.xref.setdefault(tgt, set()).add(base + 2 * k)
                     self.add_label(tgt, 'loc')
                     new.append(tgt)
@@ -496,6 +531,115 @@ class Trace:
             if i.flow in ('jmp', 'ret', 'stop'): return False
             p += i.n
         return False
+
+    def find_menus(self):
+        """UI menu descriptors (see UI_MENU): 'ld r78, #menu' followed within 3 instructions by a jump or call to
+        the interpreter. Decodes each menu and returns the code it points to (init, operands, after-routines)."""
+        rom = self.rom
+        if bytes(rom(UI_MENU + k) for k in range(len(UI_MENU_SIG))) != UI_MENU_SIG: return []
+        letters = ''
+        while rom(UI_TYPES + len(letters)) and len(letters) < 32: letters += chr(rom(UI_TYPES + len(letters)))
+        new = []
+        if UI_ACTIONS not in self.jtabs:
+            self.jtabs[UI_ACTIONS] = (len(letters), UI_ACTIONS_BR)
+            self._jb = None
+        for x, kind, name in [(UI_ACTIONS, 'loc', 'ui_actions'), (UI_TYPES, 'dat', 'ui_types')] + \
+                [(rom.word(UI_ACTIONS + 2 * k), 'loc', 'ui_act_%02x' % ord(c)) for k, c in enumerate(letters)]:
+            if self.labels.get(x) == name: continue
+            self.kind[x], self.labels[x] = kind, name
+            if kind == 'loc' and x != UI_ACTIONS: new.append(x)
+        for a, i in sorted(self.ins.items()):
+            if not (i.mn == 'ld' and i.ops[0][:2] == ('r', 0x78) and i.ops[1][0] == '#'): continue
+            p, j = a + i.n, None
+            for _ in range(3):
+                j = self.ins.get(p)
+                if j is None or j.flow: break
+                p += j.n
+            if j is None or j.flow not in ('jmp', 'call'): continue
+            m = i.ops[1][1]
+            if j.tgt != UI_MENU:
+                handler = m in self.ins or (self.in_code(m) and m < 0x8000 and self.closure_ok(m)[0])
+                if handler and self._state_setter(j.tgt):
+                    if a not in self.ptr_imm:
+                        self.ptr_imm[a] = m
+                        self.xref.setdefault(m, set()).add(a)
+                        self.add_label(m, 'sub')
+                        new.append(m)
+                continue
+            self.menu_imm[a] = m
+            if m not in self.menu_rows and m not in self.menu_bad: new += self._menu(m, letters, a)
+        return [x for x in new if x not in self.ins]
+
+    def _state_setter(self, x):
+        """True if the straight-line code at x (calls stepped over) copies r78 into a register that a 'br [r]'
+        jumps through: the r78 passed in is then a UI state handler (0x57d1: push state, rb4 = r78)."""
+        br_regs = {i.ops[0][1] for i in self.ins.values() if i.mn == 'br'}
+        for _ in range(6):
+            i = self.ins.get(x)
+            if i is None: return False
+            if i.mn == 'ld' and i.ops[1][:2] == ('r', 0x78) and i.ops[0][1] in br_regs: return True
+            if i.flow in ('jmp', 'ret', 'br', 'stop', 'trap'): return False
+            x += i.n
+        return False
+
+    def _menu(self, m, letters, site):
+        """Decode one menu (with its includes) and commit it only if every byte and pointer checks out."""
+        rom, rows, tgts = self.rom, {}, []
+        busy = lambda x, n: any(b in self.owner or b in self.menu_bytes or b in rows for b in range(x, x + n))
+
+        def code(x, src):
+            if (not self.in_code(x) or x >= 0x8000 or decode(rom, x).flow == 'bad'
+                    or (x in self.owner and x not in self.ins)):
+                raise ValueError('0x%04x (at 0x%04x) is not code' % (x, src))
+            tgts.append((x, src))
+            return x
+
+        def entries(a, depth):
+            if depth > 4: raise ValueError('includes nest too deep at 0x%04x' % a)
+            for _ in range(64):
+                if a in self.menu_rows or a in rows: return         # tail shared with a list already decoded
+                k = rom(a)
+                if k == 0:
+                    rows[a] = (1, 'menu    end', (), '')
+                    return
+                if k == 0xfe:
+                    inc = rom.word(a + 1)
+                    rows[a] = (3, 'menu    include %s', (inc,), '')
+                    if inc not in self.menu_rows and inc not in rows: entries(inc, depth + 1)
+                    a += 3
+                    continue
+                t = rom(a + 1)
+                c = chr(t & 0x7f)
+                if c not in letters: raise ValueError('unknown action 0x%02x at 0x%04x' % (t, a))
+                n = 6 if t & 0x80 else 4
+                if busy(a, n): raise ValueError('entry at 0x%04x overlaps code or another menu' % a)
+                op = code(rom.word(a + 2), a)
+                txt = 'key %02x %-7s %r %%s' % (k, UI_KEYS.get(k, ''), c)
+                ops = (op,)
+                if n == 6:
+                    txt += ', then %s'
+                    ops += (code(rom.word(a + 4), a),)
+                rows[a] = (n, txt, ops, UI_ACTION_NAMES.get(c, 'action %r' % c))
+                a += n
+            raise ValueError('no end marker within 64 entries')
+
+        try:
+            if busy(m, 2): raise ValueError('menu overlaps code')
+            rows[m] = (2, 'menu    init %s', (code(rom.word(m), m),), 'run on entry and refresh')
+            entries(m + 2, 0)
+        except ValueError as e:
+            self.problems.append((site, 'menu 0x%04x not decoded: %s' % (m, e)))
+            self.menu_bad.add(m)
+            return []
+        self.add_label(m, 'dat', 'menu_%04x' % m)
+        for a, row in rows.items():
+            n, txt, ops, _ = self.menu_rows[a] = row
+            self.menu_bytes.update(range(a, a + n))
+            if txt.startswith('menu    include'): self.add_label(ops[0], 'dat', 'menu_%04x' % ops[0])
+        for x, src in tgts:
+            self.xref.setdefault(x, set()).add(src)
+            self.add_label(x, 'sub')
+        return [x for x, _ in tgts]
 
 
 def build(rom, extra_entries=()):
@@ -518,7 +662,7 @@ def build(rom, extra_entries=()):
         entries.append(e)
     t.run(entries)
     while True:
-        new = t.find_jump_tables()
+        new = t.find_jump_tables() + t.find_menus()
         if hasattr(rom, 'copies'):
             for dst, src, n, site in t.find_ram_copies():
                 t.add_label(dst, 'sub', 'ram_%04x' % dst)
@@ -545,10 +689,12 @@ def comment_for(t, i):
             continue
         r = region(addr)
         if r == 'reg': continue
-        name = D110_IO.get(addr) or t.labels.get(addr) or ''
+        name = D110_IO.get(addr) or ('LA32' if 0x0c00 <= addr < 0x0e00 else '') or t.labels.get(addr) or ''
         notes.append(('%s %s' % (r, name)).strip() if how == 'abs' else 'table %s %s' % (r, name))
     if i.a in t.ptr_imm:
         notes.append('code ptr -> %s' % t.labels.get(t.ptr_imm[i.a], '0x%04x' % t.ptr_imm[i.a]))
+    if i.a in t.menu_imm:
+        notes.append('menu -> %s' % t.labels.get(t.menu_imm[i.a], '0x%04x' % t.menu_imm[i.a]))
     if i.a in t.ins and i.flow in ('call', 'jmp') and i.tgt in t.labels and t.labels[i.tgt].startswith(('int_', 'trap', 'reset')):
         notes.append(t.labels[i.tgt])
     return '; ' + ', '.join(notes) if notes else ''
@@ -586,6 +732,13 @@ def listing(t, out):
             if a >= 0x9000:                                     # alias section: code only
                 a += 1
                 continue
+            if a in t.menu_rows:
+                n, txt, ops, note = t.menu_rows[a]
+                body = txt % tuple(lab(x) or '0x%04x' % x for x in ops)
+                w(('  %04x  %-20s  %-38s %s' % (a, ' '.join('%02x' % rom(x) for x in range(a, a + n)), body,
+                                                 '; ' + note if note else '')).rstrip() + '\n')
+                a += n
+                continue
             if a in t.jtabs:
                 n, site = t.jtabs[a]
                 for k in range(n):
@@ -597,12 +750,14 @@ def listing(t, out):
                 continue
             # data run up to the next code / table / label, 16 bytes per line
             b = a + 1
-            while b < end and b - a < 16 and b not in t.ins and b not in t.labels and b not in jb:
+            while (b < end and b - a < 16 and b not in t.ins and b not in t.labels and b not in jb
+                   and b not in t.menu_rows):
                 b += 1
             chunk = bytes(rom(x) for x in range(a, b))
             if all(x == 0xff for x in chunk):
                 c = b
-                while c < end and rom(c) == 0xff and c not in t.ins and c not in t.labels and c not in jb: c += 1
+                while (c < end and rom(c) == 0xff and c not in t.ins and c not in t.labels and c not in jb
+                       and c not in t.menu_rows): c += 1
                 w('  %04x  ff x %d\n' % (a, c - a))
                 a = c
                 continue
@@ -615,8 +770,8 @@ def summary(t, out):
     rom, w = t.rom, out.write
     code = len(t.owner)
     jt = sum(2 * n for n, _ in t.jtabs.values())
-    w('IC19 summary: %d bytes, %d instructions (%d code bytes), %d jump tables (%d bytes)\n' %
-      (len(rom.d), len(t.ins), code, len(t.jtabs), jt))
+    w('IC19 summary: %d bytes, %d instructions (%d code bytes), %d jump tables (%d bytes), %d UI menus (%d bytes)\n' %
+      (len(rom.d), len(t.ins), code, len(t.jtabs), jt, len(set(t.menu_imm.values())), len(t.menu_bytes)))
     w('subroutines %d, local labels %d\n' % (sum(1 for k in t.kind.values() if k == 'sub'),
                                              sum(1 for k in t.kind.values() if k == 'loc')))
     w('\nentry points:\n  0x%04x reset\n' % RESET)
@@ -626,15 +781,16 @@ def summary(t, out):
     w('\nproblems (%d):\n' % len(t.problems))
     for a, msg in t.problems[:40]: w('  0x%04x %s\n' % (a, msg))
     # code / data map in 256-byte rows
-    w('\nmap, one char per 64 bytes: C code, c some code, T jump table, . data, - FF fill\n')
+    w('\nmap, one char per 64 bytes: C code, c some code, T jump table, M UI menus, . data, - FF fill\n')
     jb = t.jtab_bytes()
     for row in list(range(0x8000, 0x9000, 0x1000)) + list(range(0x1000, 0x8000, 0x1000)):
         s = ''
         for blk in range(row, row + 0x1000, 64):
             cb = sum(1 for b in range(blk, blk + 64) if b in t.owner)
             tb = sum(1 for b in range(blk, blk + 64) if b in jb)
+            mb = sum(1 for b in range(blk, blk + 64) if b in t.menu_bytes)
             ff = all(rom(b) == 0xff for b in range(blk, blk + 64))
-            s += 'C' if cb >= 32 else 'T' if tb >= 32 else '-' if ff else 'c' if cb else '.'
+            s += 'C' if cb >= 32 else 'T' if tb >= 32 else 'M' if mb >= 32 else '-' if ff else 'c' if cb else '.'
         w('  %04x %s%s\n' % (row, s, '  (window page 0 = IC19 0x0000)' if row >= 0x8000 else ''))
     # references by address class
     io, ram, win, rdat = {}, {}, {}, {}

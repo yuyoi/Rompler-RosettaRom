@@ -105,3 +105,9 @@ SST39SF040 (DIP-32): A18 on pin 1, WE# on pin 31 (mask: pin 1 NC, pin 31 A18). E
 - mcs96_dis.py: decoder matches MAME's i8x9x disassembler on every byte offset (random 64 KB + whole IC19). Tracer follows vectors, jump tables, rb4 UI handler pointers, window code (factory test mode at IC19 0x0A00) and the RAM trampoline (IC19 0x0F22 -> 0xF000). 15.3 KB of code traced, no conflicts.
 - The OS reads IC12 tables at hard-coded addresses (0x0000, 0x0900, 0x0D00 and an unknown word table at 0x0F00) with bank page 0x20. IC6 = BOSS reverb program ROM.
 - Next: decode the UI descriptor interpreter at 0x53A3 (most untraced code), identify the I/O at 0x0280/0x0400/0x0800/0x0C00-0x0DC2 (LA32?), trace the MIDI input path from the serial interrupt 0x1DAC.
+
+## IC19 stage 2 done (2026-10-07) - see IC19_MAP.md
+- UI menus decoded: `dw init` + entries `key, type, dw operand[, dw after]`, includes `FE lo hi`, end `00`; 15 action letters (call, push/set state, +/-1, +/-10, bit-field steps). Key codes = button bits (Exit 01 ... Enter 10, names from MAME). mcs96_dis.py now follows menus, state handlers passed to 0x57D1, sparse and byte-pair jump tables: 23.9 KB of code traced (was 15.3), ~1.5 KB untraced left, mostly strings/tables.
+- MIDI: serial interrupt 0x1DAC -> 3-byte event ring 0xF9FB-0xFCE2 (SysEx bodies inline) -> reader 0x1D35 -> main-loop dispatch 0x22A8 (per message type, per part by receive channel), CC table 0x3BCE, SysEx parser 0x42C5 (model 0x16, full handshake), address map table 0x470C/0x4718 (00 patch temp ... 20 display).
+- I/O: 0x0400/0x0800 = reverb latches (mode/time/level from system area 10 00 01-03), 0x0C00-0x0DFF = LA32 (EXTINT reads 0x0C00 for the partial that raised it), 0x0280 = LCD-side latch.
+- Next: first small patch (text, menu binding or SysEx table), tested in MAME's d110 driver first.
