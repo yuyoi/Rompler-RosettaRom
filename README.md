@@ -2,8 +2,8 @@
 
 # Rosetta ROM
 
-> **UNTESTED PROTOTYPE.** The software round-trips in simulation, but **nothing has been burned or run in a synth yet.**
-> Expect rough edges, wrong assumptions and changes. Do not desolder anything on the strength of this repo alone.
+> **Works on real hardware.** Custom samples play on a real Roland D-110 from SST39SF040 flash chips in IC7, IC8 and
+> IC15. See [Status](#status-working-prototype-2026-10-06) for the setup and the wiring lessons.
 
 Goal: make any rompler a sampler by replacing its PCM mask ROMs with flash chips (e.g. SST39SF040) programmed by an
 ESP32, so your own samples play where the factory waves were. First target: **Roland D-110** (LA synthesis).
@@ -11,7 +11,7 @@ ESP32, so your own samples play where the factory waves were. First target: **Ro
 This is the next step after [U110 RomHex Studio](https://github.com/yuyoi/u110-romhex-studio) and the
 [ESP32 maskrom programmer](https://github.com/yuyoi/esp32-maskrom-programmer) (U110 HexWizard).
 
-## What works (in software only)
+## What works
 
 - **Decode the D-110 wave ROMs** (IC8 = drums, IC7 = instruments): 16-bit log samples, two ROM bytes each. Round trip
   ROM -> audio -> ROM is bit-exact on the dumps used here. Decoded audio was checked by ear.
@@ -21,12 +21,11 @@ This is the next step after [U110 RomHex Studio](https://github.com/yuyoi/u110-r
 - **Rosetta ROM Studio** (`rosetta_studio.pyw`): U110-Studio-style GUI. Wave list, waveform (original vs replacement),
   load WAV, rename, save/open projects, import ROM dumps, import a folder of WAVs, export all originals, BUILD patched images.
 
-## What is NOT verified
+## Open questions
 
-- Anything on real hardware: chip pinouts/packages of IC7/IC8/IC12 vs the flash adapter, timing, burning, playback in a D-110.
 - The pitch field of the table entries (tuning of a swapped wave is a guess; drums are fine, pitched waves may be off).
 - Table entries beyond the first 128 (`0xB00+` block), timbre names (10 chars from `0x1200`), what IC6 (32 KB) holds.
-- The log-to-linear scale is matched to munt's description and sounds right, but is not hardware-confirmed.
+- The log-to-linear scale is matched to munt's description. Banks built with it play correctly on a D-110.
 
 ## Use
 
