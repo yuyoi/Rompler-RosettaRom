@@ -17,11 +17,13 @@ Settings live in battery-backed RAM 0xF610-0xF66F (never used by the stock OS), 
 from mcs96_asm import Asm
 
 MAGIC = 0x5a1c
-RB = 0xf610
-RAM = dict(R_MAGIC=RB + 0, MIDX=RB + 1, DRIFTP=RB + 2, RCUT=RB + 3, RWAVE=RB + 4, CHORD=RB + 5, CHPART=RB + 6,
-           CHI=RB + 7, LASTSLOT=RB + 8, TGT=RB + 10, LFSR=RB + 12, NP=RB + 14, NC=RB + 16, NW=RB + 17,
-           WAVE=RB + 18, OFS=RB + 32, R_END=RB + 96)
-RAM_INIT_LEN = 96
+RB = 0x1a                   # settings + state in internal registers 0x1A-0x33 (never used by the stock OS)
+RAM = dict(R_MAGIC=RB + 0, MIDX=RB + 2, DRIFTP=RB + 3, RCUT=RB + 4, RWAVE=RB + 5, CHORD=RB + 6, CHPART=RB + 7,
+           CHI=RB + 8, LASTSLOT=RB + 9, TGT=RB + 10, LFSR=RB + 12, NP=RB + 14, NC=RB + 16, NW=RB + 17,
+           WAVE=RB + 18, R_END=RB + 26, OFS=0xf630)
+# v7 kept these at 0xF610 (battery RAM); on hardware the values read back as garbage and edits did not stick,
+# so they moved to registers (lost at power-off). The OFS table (64 B) stays at 0xF630; the Info item tests it.
+RAM_INIT_LEN = RAM['R_END'] - RB
 IC15_ENTRY = dict(E_BANNER=0xb002, E_UI=0xb005, E_NON=0xb008, E_NOFF=0xb00b, E_WAVE=0xb00e, E_PART=0xb011)
 STOCK = dict(NOTE_ON=0x24fc, NOTE_OFF=0x245d, ALL_OFF=0x3de2, POP_STATE=0x5391, REDRAW=0x53cb, API_LCD=0x208a,
              PART=0xf6cd, LCDBUF=0xf6ab)
@@ -120,9 +122,10 @@ def build_ic19():
 CHORDS = [('Off', []), ('Octave', [12]), ('Fifth', [7]), ('5th+Oct', [7, 12]), ('Major', [4, 7]),
           ('Minor', [3, 7]), ('Sus4', [5, 7]), ('Major7', [4, 7, 11]), ('Minor7', [3, 7, 10]),
           ('Dom7', [4, 7, 10]), ('Minor9', [3, 7, 10, 14]), ('Dim', [3, 6])]
-# name (16), RAM byte, max, kind (0 number, 1 chord name, 2 part All/P1-8, 3 per part, live)
+# name (16), RAM byte, max, kind (0 number, 1 chord name, 2 part All/P1-8, 3 per part, live, 4 info: no value)
 ITEMS = [('Wave Scan (CC70)', 'WAVE', 127, 3), ('Random Wave', 'RWAVE', 127, 0), ('Drift Pitch', 'DRIFTP', 31, 0),
-         ('Random Cutoff', 'RCUT', 100, 0), ('Chord', 'CHORD', len(CHORDS) - 1, 1), ('Chord Part', 'CHPART', 8, 2)]
+         ('Random Cutoff', 'RCUT', 100, 0), ('Chord', 'CHORD', len(CHORDS) - 1, 1), ('Chord Part', 'CHPART', 8, 2),
+         ('Info', 'MIDX', 0, 4)]
 
 
 def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
@@ -140,17 +143,17 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
             ret
             ret
 
-    ; ---- settings RAM: battery-backed, garbage on a fresh unit -> zero it once (all features off)
+    ; ---- settings: registers come up random at power-on -> zero them once (all features off)
     ramchk: push  r70
-            ldb   r70, R_MAGIC
-            cmpb  r70, #0xa7
+            ld    r70, R_MAGIC
+            cmp   r70, #0xa75a
             je    rc_ok
-            ld    r70, #R_MAGIC
+            ld    r70, #MIDX
     rc_z:   stb   zero, [r70]+
             cmp   r70, #R_END
             jne   rc_z
-            ldb   r70, #0xa7
-            stb   r70, R_MAGIC
+            ld    r70, #0xa75a
+            st    r70, R_MAGIC
     rc_ok:  pop   r70
             ret
 
@@ -440,6 +443,8 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
     u_st:   stb   r72, MIDX
             sjmp  draw
     u_val:  lcall item
+            cmpb  r7b, #4
+            je!   draw                  ; Info: nothing to edit
             jbs   r7c, 7, draw          ; per-part item on the rhythm part: no edit
             ldbze r7e, [r74]
             ldbse r70, r76
@@ -485,6 +490,8 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
             je    d_ch
             cmpb  r7b, #2
             je    d_pt
+            cmpb  r7b, #4
+            je!   d_inf
             lcall put3
             inc   r76
             mulub r70, r7e, #10         ; bar: 10 chars = max
@@ -496,7 +503,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
     d_b1:   stb   r70, [r76]+
             djnz  r7e, d_b1
     d_bar:  cmpb  r7b, #3
-            jne   show
+            jne!  show
             ldb   r70, #0x50            ; 'P'
             stb   r70, LCDBUF+31
             ldb   r70, r7c
@@ -524,6 +531,51 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
             stb   r70, [r76]+
             addb  r7e, #0x30
             stb   r7e, [r76]
+    ; Info: RAM test at 0xF630 and 0xF6A0 (write a5/5a, read back, restore) and the current part byte 0xF6CD
+    d_inf:  ld    r78, #inftxt
+            ldb   r7e, #4
+    d_i1:   ldb   r70, [r78]+
+            stb   r70, [r76]+
+            djnz  r7e, d_i1
+            ld    r74, #0xf630
+            lcall rtest
+            ldb   r70, #0x2f            ; '/'
+            stb   r70, [r76]+
+            ld    r74, #0xf6a0
+            lcall rtest
+            ld    r70, #0x5020          ; ' P'
+            st    r70, [r76]+
+            ldb   r7e, PART
+            ldb   r70, r7e
+            shrb  r70, #4
+            lcall hexd
+            ldb   r70, r7e
+            lcall hexd
+            sjmp  show
+    hexd:   andb  r70, #0x0f
+            addb  r70, #0x30
+            cmpb  r70, #0x3a
+            jnc   hx1
+            addb  r70, #7
+    hx1:    stb   r70, [r76]+
+            ret
+    rtest:  ldb   r72, [r74]
+            ldb   r70, #0xa5
+            stb   r70, [r74]
+            ldb   r71, [r74]
+            cmpb  r71, r70
+            jne   rt_ng
+            ldb   r70, #0x5a
+            stb   r70, [r74]
+            ldb   r71, [r74]
+            cmpb  r71, r70
+            jne   rt_ng
+            ld    r70, #0x6b6f          ; 'ok'
+            sjmp  rt_w
+    rt_ng:  ld    r70, #0x474e          ; 'NG'
+    rt_w:   stb   r72, [r74]
+            st    r70, [r76]+
+            ret
     show:   ld    r78, #LCDBUF
             lcall API_LCD
             clrb  r70
@@ -565,6 +617,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v7 ', ' D-110  + IC15  ')):
     chiv = ''.join('db %s\n' % ', '.join(str(b) for b in (iv + [0, 0, 0, 0])[:4]) for _, iv in CHORDS)
     ban = (banner[0].ljust(16)[:16] + banner[1].ljust(16)[:16]).encode()
     C.src('items:\n' + items + 'chname:\n' + chname + 'chiv:\n' + chiv +
+          'inftxt:\n db 77, 101, 109, 32\n' +
           'bantxt:\n db 0\n db %s\n db 0\n' % ', '.join(str(b) for b in ban))
     C.syms['NCHORDS'] = len(CHORDS)
     code = C.assemble()

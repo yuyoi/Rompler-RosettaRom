@@ -47,7 +47,7 @@ for a in range(R.RB, R.RB + R.RAM_INIT_LEN): s.st(a, 0x5a, 1)     # battery RAM 
 s.st(0xb7, 0x11, 1); s.bank = 0x11
 s.st(0xf6cd, 2, 1); s.st(0x70, 0xff, 1); s.call(lab['ros_ui'])
 check('menu draw: %r' % s.lcd[-1], s.lcd[-1].startswith('Wave Scan (CC70)000') and s.lcd[-1].endswith('P3'))
-check('settings RAM zeroed once (magic set)', ram(s, 'R_MAGIC') == 0xa7 and ram(s, 'CHORD') == 0 and ram(s, 'DRIFTP') == 0)
+check('settings zeroed once (magic set)', s.ld(R.RAM['R_MAGIC'], 2) == 0xa75a and ram(s, 'CHORD') == 0 and ram(s, 'DRIFTP') == 0)
 check('bank latch back to the caller page', s.bank == 0x11 and s.ld(0xb7, 1) == 0x11)
 keys = lambda *ks: [(s.st(0x70, k, 1), s.call(lab['ros_ui'])) for k in ks]
 keys(0x05, 0x05)                                    # -> Drift Pitch
@@ -55,8 +55,12 @@ keys(0x07, 0x07, 0x07, 0x07, 0x06)                  # +10 x4 (clamp 31), +1
 check('Drift Pitch clamps at 31: %r' % s.lcd[-1], ram(s, 'DRIFTP') == 31 and s.lcd[-1].startswith('Drift Pitch'))
 keys(0x0f, 0x0f, 0x0f, 0x0f, 0x0e)
 check('... and at 0', ram(s, 'DRIFTP') == 0)
-keys(0x0d, 0x0d, 0x0d)                              # back past item 0 -> wraps to the last item (Chord Part)
-check('Group- wraps to Chord Part: %r' % s.lcd[-1][:16], s.lcd[-1].startswith('Chord Part') and s.lcd[-1][16:19] == 'All')
+keys(0x0d, 0x0d, 0x0d)                              # back past item 0 -> wraps to the last item (Info)
+check('Group- wraps to Info: %r' % s.lcd[-1], s.lcd[-1] == 'Info            Mem ok/ok P02   ')
+keys(0x06)
+check('Bank+ on Info changes nothing', ram(s, 'MIDX') == 6)
+keys(0x0d)
+check('Chord Part: %r' % s.lcd[-1][:19], s.lcd[-1].startswith('Chord Part') and s.lcd[-1][16:19] == 'All')
 keys(0x0d, 0x06, 0x06, 0x06, 0x06)                  # Chord: Major
 check('Chord = Major (and all notes off sent): %r' % s.lcd[-1][16:24],
       ram(s, 'CHORD') == 4 and s.lcd[-1][16:24] == 'Major   ' and sum(c[0] == 'alloff' for c in s.calls) == 32)

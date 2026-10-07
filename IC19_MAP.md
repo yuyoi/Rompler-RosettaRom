@@ -343,5 +343,7 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
 - Amplitude: no multiplier, attenuations are subtracted (`0x9B` - part level - CC7 - CC11 - bias `0xEDC1[p]` - partial
   level - velocity `0xF180[p]`), at note-on, each envelope stage (`int_extint`) and the sustain re-ramp. Vector
   synthesis candidate: add to `0xF180[p]`.
-- Free RAM: `0xF600-0xF6A3` (never referenced; battery-backed, so keep a magic byte). Rosetta uses `0xF610-0xF66F`.
-  Never-used registers: `0x1A-0x3F`, `0x90-0x9F`.
+- Free RAM: `0xF600-0xF6A3` looked unreferenced, but on hardware (v7) settings kept at `0xF610` read back as garbage
+  and edits did not stick (cause unknown). v7b keeps settings/state in the never-used registers `0x1A-0x33` (lost at
+  power-off) and only the per-partial wave offset table at `0xF630`; the menu item Info tests `0xF630` and `0xF6A0`.
+  Other never-used registers: `0x34-0x3F`, `0x90-0x9F`.
