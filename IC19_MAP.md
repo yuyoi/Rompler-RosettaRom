@@ -199,7 +199,7 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   (address bytes from `0xF6A5`) and `0x4C27` (outgoing Roland message up to `F7`, `negb`/`and 0x7F`). Nothing sums
   `0x1000-0x7FFF`, and test mode (`0x8A00`) has no ROM test. So a patched IC19 needs no checksum fix-up.
 - **Version screen.** Boot code `0x2264` reads the SC1 button row (`0x021C`). On `0xEA` it prints the string at
-  `0x2205` (api_208a -> `0x1C02`) and waits about a second (`0x228D`); on `0xFC` it enters test mode (`0x8A00`).
+  `0x2205` (api_208a -> `0x1C02`) then `0x228D` runs a delay loop and waits until api_208e returns 0; on `0xFC` it enters test mode (`0x8A00`).
   Which three buttons give `0xEA` is not checked on the unit yet. String format for `0x1C02`: one LCD DDRAM address
   byte (`0x00` = line 1), then characters to column 16, then line 2 (`0x40`) until a `00` byte. v1.10 has 32 characters
   at `0x2206-0x2225` and `00` at `0x2226`.
