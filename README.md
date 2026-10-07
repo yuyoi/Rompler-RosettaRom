@@ -97,6 +97,7 @@ Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-12
 - [ ] PN-D10-01 ROM card shows "No Data" in the modded unit: test the card in a GR-50.
 - [ ] Length codes 4-7 (samples longer than 0.51 s without the stretch trick) untested.
 - [ ] Rebuild `dist/Rosetta ROM D110.exe` (current exe is v0.1).
+- [ ] OS mod: check that the stock Write/Copy > "Timbre Write" saves Quick-screen/CC edits (they go into the same timbre temp area the stock editor uses; the edited flags only drive the `*` marker). Resonance etc. belong to the timbre, not the patch: write the timbre to an I-slot, point the patch part at it, then Patch Write.
 
 ## D-110 OS mod: one EPROM swap (IC19 only)
 Works on a real D-110 (OS v1.10). It only changes IC19, the socketed OS EPROM, and works with a stock IC15/IC7/IC8.
