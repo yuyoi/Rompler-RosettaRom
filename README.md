@@ -100,8 +100,8 @@ Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-12
 - [ ] OS mod: check that the stock Write/Copy > "Timbre Write" saves Quick-screen/CC edits (they go into the same timbre temp area the stock editor uses; the edited flags only drive the `*` marker). Resonance etc. belong to the timbre, not the patch: write the timbre to an I-slot, point the patch part at it, then Patch Write.
 
 ## D-110 OS mod v6: one EPROM swap (IC19 only)
-The non-intrusive upgrade: one socketed chip, stock IC15/IC7/IC8, put the original back any time. Frozen at git tag
-`ic19-mod-v6`. Bigger features that need IC15 come as a separate two-chip mod.
+The non-intrusive upgrade: one socketed chip, stock IC15/IC7/IC8, put the original back any time. v6 code =
+commit `df82c2a` (the tools only change with a new version number). Bigger features that need IC15 come as a separate two-chip mod.
 
 Works on a real D-110 (OS v1.10). It only changes IC19, the socketed OS EPROM, and works with a stock IC15/IC7/IC8.
 - **Quick screen:** hold **Enter** + press **Edit** (this used to start the demo). Group +/- = filter cutoff,
