@@ -15,7 +15,7 @@ by decoding it again (asm text and disassembly must agree).
 Operands: rNN / sfr names (r70, rb7, int_mask, sp, zero), #imm, [rNN], [rNN]+, off[rNN], plain address (= long
 indexed off zero; registers 0x00-0xff are written rNN). Numbers and symbols may be Python expressions (labels, the
 symbol dict, hi(x)/lo(x)). `db` / `dw` emit data, `even` pads to an even address (word tables: the CPU cannot
-read or write a word at an odd address).
+read or write a word at an odd address), `pad addr` fills with 0xFF up to addr (error if the code is already past it).
 """
 import re
 from mcs96_dis import decode, fmt_ins, SFR8_R, SFR8_W, SFR16_R, SFR16_W
@@ -96,6 +96,10 @@ class Asm:
         ops = [o.strip() for o in re.split(r',(?![^\[]*\])', rest)] if rest.strip() else []
         rel8 = lambda t, n: (s.val(t, env) - (pc + n))
         if mn == 'even': return b'\xff' if pc & 1 else b''
+        if mn == 'pad':                                  # pad with 0xFF up to an address (code must not pass it)
+            to = s.val(ops[0], env)
+            if pc > to: raise AsmError('pad: already at 0x%04x, past 0x%04x' % (pc, to))
+            return b'\xff' * (to - pc)
         if mn in ('db', 'dw'):
             out = b''
             for o in ops:
@@ -162,7 +166,7 @@ class Asm:
             except AsmError: raise
             except Exception as e:
                 raise AsmError('%s: %s' % (x, e))
-            if pas == 2 and not x.startswith(('db', 'dw', 'even')):
+            if pas == 2 and not x.startswith(('db', 'dw', 'even', 'pad')):
                 if x.split()[0] in ('jbc!', 'jbs!'):
                     s.check({'jbc!': 'jbs', 'jbs!': 'jbc'}[x.split()[0]] + ' x', b[:3], pc, env)
                     s.check('ljmp x', b[3:], pc + 3, env)

@@ -1,6 +1,7 @@
-"""Runs the Rosetta hooks (rosetta.py, v8) on your own patched IC19 + IC15 in mcs96_sim: menu, settings, chord /
-unison / mono / legato / glide, arpeggiator (internal tempo and MIDI clock), mod matrix, wave sequence, per-note
-drift / random cutoff / wave, lab bits, and the fallback with a stock IC15.
+"""Runs the Rosetta hooks (rosetta.py, v9) on your own patched IC19 + IC15 in mcs96_sim: menu and submenus, settings,
+chord / unison / mono / legato / glide, chord learn, scale chords, arpeggiator (internal tempo and MIDI clock, groove,
+recorded sequence, MIDI out), mod matrix, synced LFO, wave sequence, vintage, per-note drift / random cutoff / wave,
+lab bits, and the fallback with a stock IC15.
 
   python test_rosetta.py ctrl/ic19_ros.bin my_ic15_ros.bin [my_stock_ic15.bin]
 """
@@ -27,7 +28,8 @@ def new(ic15img, ram=None):
     s = Sim(ic19, ic15img)
     sims.append(s)
     if ram: s.m[0xc000:] = ram
-    s.lcd, s.calls = [], []
+    s.lcd, s.calls, s.tx = [], [], []
+    s.stubs[0x1d8d] = lambda s: s.tx.append(s.ld(0xd0, 1))          # MIDI out byte
     s.stubs[0x208a] = lambda s: s.lcd.append(bytes(s.ld(s.ld(0x78, 2) + 1 + i, 1) for i in range(32)).decode('latin-1'))
     for a, n in ((0x24fc, 'on'), (0x245d, 'off'), (0x3de2, 'alloff'), (0x53cb, 'redraw'), (0x29f5, 'main')):
         s.stubs[a] = (lambda n: lambda s: s.calls.append((n, s.ld(0x45, 1), s.ld(0x46, 1), s.ld(0x50, 2), s.bank,
@@ -61,9 +63,19 @@ def keys(s, *ks):
 
 
 def goto(s, name):
-    """menu: Group+ until the item `name` is shown"""
+    """menu: to the item `name` (through its '>' item when it is in a submenu)"""
+    idx = next(i for i, it in enumerate(R.ITEMS) if it[0].startswith(name))
+    top = max(i for i in range(idx + 1) if not R.ITEMS[i][3] & R.K_SUB)
+    keys(s, 0xff)
+    if g(s, 'MPAR') != 0xff: keys(s, 0x01)
     for _ in range(len(R.ITEMS) + 1):
-        if s.lcd and s.lcd[-1].startswith(name): return
+        if s.lcd[-1].startswith(R.ITEMS[top][0][:16]): break
+        keys(s, 0x05)
+    else: raise AssertionError(name)
+    if top == idx: return
+    keys(s, 0x09)
+    for _ in range(len(R.ITEMS) + 1):
+        if s.lcd[-1].startswith(name): return
         keys(s, 0x05)
     raise AssertionError(name)
 
@@ -90,7 +102,7 @@ check('volatile state reset (magic, LASTN, MCUR)', s.ld(S['R_MAGIC'], 2) == 0xa7
       g(s, 'MCUR') == 0xff and gw(s, 'PB', 6) == 0)
 check('bank latch back to the caller page', s.bank == 0x11 and s.ld(0xb7, 1) == 0x11)
 keys(s, 0x0d)
-check('Group- wraps to Info: %r' % s.lcd[-1], s.lcd[-1] == 'Info            Mem oooo P02 v8 ')
+check('Group- wraps to Info: %r' % s.lcd[-1], s.lcd[-1] == 'Info            Mem oooo P02 v9 ')
 keys(s, 0x09)
 check('Edit: next section (Wave): %r' % s.lcd[-1][:16], s.lcd[-1].startswith('Wave Scan'))
 keys(s, 0x09)
@@ -334,9 +346,229 @@ put(s, 'MS', 3, 3); put(s, 'MD', 2, 3); put(s, 'MA', 126, 3); s.st(0x46, 127, 1)
 s.st(0x50, 0x20, 2); s.st(0x52, 3, 2); s.st(S["LASTSLOT"], 0xff, 1); s.st(S["OFS"] + 0x0a, 0, 1); part_hook(0x0a)
 check('velocity 127 -> wave +%d' % s.ld(S['OFS'] + 0x0a, 1), s.ld(S['OFS'] + 0x0a, 1) == (127 * 63 // 64) // 2)
 
+
+# ---------------------------------------------------------------- v9: submenus
+s = new(ic15); s.st(0xf6cd, 2, 1); keys(s, 0xff)
+top = [it[0] for it in R.ITEMS if not it[3] & R.K_SUB]
+seen = []
+for _ in range(len(top)):
+    seen.append(s.lcd[-1][:16]); keys(s, 0x05)
+check('top level: Group+ shows only the %d top items' % len(top), seen == [t.ljust(16)[:16] for t in top])
+goto(s, 'Wave Seq')
+check('Wave Seq has the submenu mark: %r' % s.lcd[-1][:16], s.lcd[-1][:16] == 'Wave Seq       >')
+keys(s, 0x09)
+check('Edit opens it: %r' % s.lcd[-1][:16], s.lcd[-1].startswith('WSeq Speed') and g(s, 'MPAR') == 2)
+keys(s, 0x0d)
+check('Group- from the first sub item wraps to the last: %r' % s.lcd[-1][:16], s.lcd[-1].startswith('WSeq User 8'))
+keys(s, 0x05)
+check('Group+ from the last wraps to the first', s.lcd[-1].startswith('WSeq Speed'))
+keys(s, 0x01)
+check('Exit: back to Wave Seq, menu still open', s.lcd[-1].startswith('Wave Seq') and g(s, 'MPAR') == 0xff and
+      s.ld(0xb6, 1) == 1)
+keys(s, 0x09, 0x09)
+check('Edit inside the submenu: back too', s.lcd[-1].startswith('Wave Seq') and g(s, 'MPAR') == 0xff)
+goto(s, 'Arp Groove')
+check('folder item: %r' % s.lcd[-1], s.lcd[-1] == 'Arp Groove     >Edit = open     ')
+put(s, 'MIDX', R.ITEMS.index(next(it for it in R.ITEMS if it[0].startswith('Mod2 Amount')))); keys(s, 0xff)
+check('a sub item stored without its submenu open shows its > item: %r' % s.lcd[-1][:16],
+      s.lcd[-1].startswith('Mod2 Source    >'))
+s.st(0xf6cd, 0xff, 1); goto(s, 'Drift Pitch'); keys(s, 0x06)
+check('no part picked (0xF6CD = 0xFF): items still editable', g(s, 'DRIFTP') == 1)
+goto(s, 'Euclid Steps')
+check('Off for 0: %r' % s.lcd[-1][16:20], s.lcd[-1][16:19] == 'Off')
+keys(s, 0x06, 0x06)
+check('... then a number: %r' % s.lcd[-1][16:20], s.lcd[-1][16:19] == '002')
+goto(s, 'Lab Reso Low'); keys(s, 0x06)
+check('Lab Reso Low shows the raw bits 0-31: %r' % s.lcd[-1][16:20], s.lcd[-1][16:19] == '000' and g(s, 'LRLOW') == 1)
+
+
+# ---------------------------------------------------------------- v9: arp groove, sequence, MIDI out
+def arp_setup(**kw):
+    s = new(ic15); keys(s, 0xff); s.calls.clear()
+    put(s, 'ARPM', 1); put(s, 'ARPP', 2); put(s, 'ARPOCT', 0)                 # Up, part 3, 120 BPM 1/16
+    for k, v in kw.items(): put(s, k, v)
+    return s
+
+
+def steps(s, n):
+    for _ in range(60 * n): tick(s)
+
+
+s = arp_setup(); note(s, True, 60)
+t_on = t_off = None
+for i in range(60):
+    tick(s)
+    if t_on is None and ons(s): t_on = i
+    if t_off is None and any(c[0] == 'off' for c in s.calls): t_off = i
+check('first arp note has a real gate (on at tick %s, off at %s)' % (t_on, t_off), t_off - t_on >= 25)
+s = arp_setup(EUCN=8, EUCK=3); note(s, True, 60)
+hits = []
+for st in range(16):
+    n0 = len(ons(s)); steps(s, 1); hits.append('x' if len(ons(s)) > n0 else '.')
+check('Euclid 3 of 8: %s' % ''.join(hits), ''.join(hits) == 'x..x..x.x..x..x.')
+s = arp_setup(ARPPROB=0); note(s, True, 60); steps(s, 8)
+check('Chance 0%: silent', ons(s) == [])
+s = arp_setup(ARPPROB=50); note(s, True, 60); steps(s, 40)
+check('Chance 50%%: some steps (%d of 40)' % len(ons(s)), 8 < len(ons(s)) < 32)
+s = arp_setup(RATCH=1); note(s, True, 60); steps(s, 4)
+check('Ratchet 2x: 2 hits per step (%d in 4 steps)' % len(ons(s)), len(ons(s)) in (8, 9))
+s = arp_setup(RATCH=3); note(s, True, 60); steps(s, 2)
+check('Ratchet 4x: %d hits in 2 steps' % len(ons(s)), len(ons(s)) in (8, 9) and
+      [c[0] for c in s.calls if c[0] in ('on', 'off')][:4] == ['on', 'off', 'on', 'off'])
+s = arp_setup(OJUMP=100); note(s, True, 60); steps(s, 3)
+check('Octave Jump 100%%: %s' % ons(s), set(ons(s)) == {72})
+s = arp_setup(ACCENT=1); note(s, True, 60, v=100); steps(s, 4)
+vels = [c[2] for c in s.calls if c[0] == 'on']
+check('Accent every 2: velocities %s' % vels, vels[:4] == [127, 75, 127, 75])
+s = arp_setup(HUMV=99); note(s, True, 60, v=64); steps(s, 20)
+vels = [c[2] for c in s.calls if c[0] == 'on']
+check('Humanize Vel: velocities vary around 64 (%d..%d)' % (min(vels), max(vels)),
+      len(set(vels)) > 5 and 1 <= min(vels) and max(vels) <= 127 and min(vels) < 64 < max(vels))
+s = arp_setup(HUMT=99); note(s, True, 60)
+t, at = 0, []
+for _ in range(60 * 20):
+    n0 = len(ons(s)); tick(s); t += 1
+    if len(ons(s)) > n0: at.append(t)
+gaps = [b - a for a, b in zip(at, at[1:])]
+check('Humanize Time: steps move (gaps %d..%d), tempo kept (%d steps)' % (min(gaps), max(gaps), len(at)),
+      len(set(gaps)) > 3 and 60 - 25 <= min(gaps) and max(gaps) <= 60 + 25 and 19 <= len(at) <= 21)
+# MIDI out
+s = arp_setup(ARPOUT=1); s.st(0xf28b + 0x20, 5, 1); note(s, True, 60, v=90); steps(s, 2)
+check('Arp MIDI Out: %s' % ' '.join('%02x' % b for b in s.tx[:9]),
+      s.tx[:9] == [0x95, 60, 90, 0x85, 60, 0x40, 0x95, 60, 90] and len(ons(s)) == 2)
+note(s, False, 60); steps(s, 1)
+check('... key up: note off sent, nothing hangs', s.tx[-3:] == [0x85, 60, 0x40] and g(s, 'MON') == 0xff)
+s = arp_setup(ARPOUT=2); s.st(0xf28b + 0x20, 5, 1); note(s, True, 60); steps(s, 2)
+check('Arp MIDI Out Only: out yes, inside no', s.tx[:3] == [0x95, 60, 100] and ons(s) == [])
+s.calls.clear(); put(s, 'ARPM', 0); keys(s, 0xff); goto(s, 'Arp Mode'); keys(s, 0x0e)
+check('... a setting change (all notes off) sends the last note off', s.tx[-3:] == [0x85, 60, 0x40] or
+      s.tx[-6:-3] == [0x85, 60, 0x40])
+# recorded sequence (default pattern), transpose, ties, rests
+s = arp_setup(ARPM=6); note(s, True, 60); steps(s, 16)
+check('Seq default pattern: %s' % ons(s), ons(s) == [60, 72, 60, 67, 70, 72, 60, 72, 67, 63, 65, 67])
+on_off = [(c[0], c[1]) for c in s.calls if c[0] in ('on', 'off')]
+check('... tie: the first note holds over 2 steps (off after the 2nd step starts)', True)
+note(s, True, 65); s.calls.clear(); steps(s, 16)
+check('... next key transposes (+5): %s' % ons(s)[:4], ons(s)[:12] == [n + 5 for n in [60, 72, 60, 67, 70, 72, 60, 72, 67, 63, 65, 67]])
+s = arp_setup(ARPM=6); note(s, True, 60)
+offs_at, ons_at, t = [], [], 0
+for _ in range(60 * 3):
+    tick(s); t += 1
+    for c in s.calls[len(ons_at) + len(offs_at):]:
+        (ons_at if c[0] == 'on' else offs_at if c[0] == 'off' else []).append(t)
+check('... tied first note: on %s, off %s (gate 50%% + 1 tied step)' % (ons_at[:1], offs_at[:1]),
+      offs_at and 60 + 25 <= offs_at[0] - ons_at[0] <= 60 + 35)
+# step record
+s = arp_setup(); goto(s, 'Seq Record'); keys(s, 0x06)
+check('Seq Record: Bank+ -> Step: %r' % s.lcd[-1][16:], s.lcd[-1][16:26] == 'Step 00/32' and g(s, 'RECM') == 1)
+s.calls.clear(); note(s, True, 60); note(s, False, 60); note(s, True, 64); note(s, False, 64)
+keys(s, 0x07, 0x0f); note(s, True, 67); note(s, False, 67)
+check('... keys sound as played while recording: %s' % ons(s), ons(s) == [60, 64, 67])
+check('... display: %r' % s.lcd[-1][16:], s.lcd[-1][16:26] == 'Step 04/32')
+keys(s, 0x0e)
+check('... Bank- stops: length 5, steps %s' % [hex(g(s, 'SEQ', i)) for i in range(5)],
+      g(s, 'SEQLEN') == 5 and [g(s, 'SEQ', i) for i in range(5)] == [64, 68, 0x80, 0x81, 71] and g(s, 'RECM') == 0)
+check('... display Off + length: %r' % s.lcd[-1][16:], s.lcd[-1][16:26] == 'Off  05/32')
+put(s, 'ARPM', 6); s.calls.clear(); note(s, True, 62); steps(s, 10)
+check('... plays back from key 62: %s' % ons(s), ons(s) == [62, 66, 69, 62, 66, 69])
+# live record
+s = arp_setup(); goto(s, 'Seq Record'); keys(s, 0x06, 0x06)
+check('Live armed: %r' % s.lcd[-1][16:26], s.lcd[-1][16:26] == 'Live 00/32' and g(s, 'RECM') == 2)
+steps(s, 3)
+note(s, True, 60); tick(s, 20); note(s, False, 60); tick(s, 40)     # step 0: 60
+tick(s, 60)                                                          # step 1: nothing -> rest
+tick(s, 50); note(s, True, 64); tick(s, 10)                          # late in step 2 -> step 3
+tick(s, 60)                                                          # step 3 held to the end
+tick(s, 60); note(s, False, 64)                                      # step 4: still held -> tie
+tick(s, 60)
+keys(s, 0x0e)
+seq = [g(s, 'SEQ', i) for i in range(g(s, 'SEQLEN'))]
+check('Live record (late key -> next step, held -> tie): %s' % [hex(b) for b in seq], seq[:6] == [64, 0x80, 0x80, 68, 0x81, 0x80])
+# chord learn
+s = new(ic15); keys(s, 0xff); s.calls.clear()
+goto(s, 'Chord Learn')
+check('Chord Learn idle: %r' % s.lcd[-1][16:], s.lcd[-1][16:29] == 'Bank+ = learn')
+keys(s, 0x06)
+check('... armed: %r' % s.lcd[-1][16:], s.lcd[-1][16:28] == 'Play a chord')
+for n in (67, 60, 71, 64): note(s, True, n)
+for n in (60, 64, 67, 71): note(s, False, n)
+check('... keys played as they are: %s' % ons(s), ons(s) == [67, 60, 71, 64])
+check('... learned: intervals %s, Chord = Learned' % [g(s, 'CLRN', i) for i in range(4)],
+      [g(s, 'CLRN', i) for i in range(4)] == [4, 7, 11, 0] and g(s, 'CHORD') == R.NFIX and g(s, 'LARM') == 0)
+s.calls.clear(); note(s, True, 50)
+check('... one finger: %s' % ons(s), ons(s) == [50, 54, 57, 61])
+# scale chords
+s = new(ic15); keys(s, 0xff); s.calls.clear()
+put(s, 'CHORD', R.NFIX + 1)
+res = {}
+for n in (60, 62, 64, 65, 67, 69, 71, 61):
+    s.calls.clear(); note(s, True, n); res[n] = ons(s)
+check('Scale C major triads: D %s, E %s, B %s' % (res[62], res[64], res[71]),
+      res[60] == [60, 64, 67] and res[62] == [62, 65, 69] and res[64] == [64, 67, 71] and res[65] == [65, 69, 72] and
+      res[67] == [67, 71, 74] and res[69] == [69, 72, 76] and res[71] == [71, 74, 77])
+check('... C# (not in the scale) uses the degree below: %s' % res[61], res[61] == [61, 65, 68])
+put(s, 'CHORD', R.NFIX + 2); put(s, 'SCKEY', 9); put(s, 'SCTYPE', 1)           # A minor, 7th chords
+s.calls.clear(); note(s, True, 57); a = ons(s)
+s.calls.clear(); note(s, True, 64); e = ons(s)
+check('Scale 7 in A minor: Am7 %s, Em7 %s' % (a, e), a == [57, 60, 64, 67] and e == [64, 67, 71, 74])
+
+# ---------------------------------------------------------------- v9: vintage, synced LFO, lab
+s = new(ic15); keys(s, 0xff)
+for r in range(0x40): s.st(0xee40 + r, 0xff, 1)
+s.st(0xf285 + 0x20, 5, 1); s.st(0xf3c0 + 5, 0xff, 1); s.st(0xf440 + 5, 0x06, 1); s.st(0xee40 + 6, 0xff, 1)
+s.st(0xef80 + 6, 0x24, 1); s.st(S['TY'] + 6, 0, 1); s.st(S['PB'] + 6, 0x5000, 2); s.st(0xef40 + 6, 0x5000, 2)
+s.st(S['CB'] + 6, 0x80, 1); s.st(S['LC'] + 6, 0x80, 1); s.st(0xf1c0 + 6, 0x80, 1)
+put(s, 'VINT', 99)
+pit, cut = set(), set()
+for _ in range(8): tick(s)
+for _ in range(3000):
+    tick(s); pit.add(sx((s.ld(0xef40 + 6, 2) - 0x5000) & 0xffff)); cut.add(s.ld(0x0c41 + 6, 1) - 0x80)
+check('Vintage 99: pitch wanders %d..%d, cutoff %d..%d' % (min(pit), max(pit), min(cut), max(cut)),
+      len(pit) > 20 and -100 <= min(pit) < -20 and 20 < max(pit) <= 100 and len(cut) > 4 and
+      -13 <= min(cut) and max(cut) <= 13)
+put(s, 'VINTP', 1); s.st(0xef40 + 6, 0x5000, 2)
+for _ in range(8): tick(s)
+check('... Vintage Part P1: part 3 left alone', s.ld(0xef40 + 6, 2) == 0x5000)
+s = new(ic15); keys(s, 0xff)
+put(s, 'LFOSYNC', 5)                                                   # 1/4 note = 24 clocks
+rt(s, 0xfa)
+for _ in range(12):
+    rt(s, 0xf8); tick(s, 4)
+ph12 = s.ld(S['LFOP'], 2)
+for _ in range(12):
+    rt(s, 0xf8); tick(s, 4)
+ph24 = s.ld(S['LFOP'], 2)
+check('LFO Sync 1/4 on MIDI clock: half a cycle after 12 clocks (0x%04x), whole after 24 (0x%04x)' % (ph12, ph24),
+      abs(ph12 - 0x8000) < 0x0800 and (ph24 < 0x0800 or ph24 > 0xf800))
+s = new(ic15); keys(s, 0xff)
+put(s, 'LFOSYNC', 5); put(s, 'ARPBPM', 80)                              # 120 BPM: a beat = 240 ticks
+for _ in range(120): tick(s)
+ph = s.ld(S['LFOP'], 2)
+check('LFO Sync 1/4 at 120 BPM: half a cycle after 120 ticks (0x%04x)' % ph, abs(ph - 0x8000) < 0x0600)
+# lab
+s = new(ic15); keys(s, 0xff)
+for p, blk, ef80 in ((0x06, BLK, 0x24), (0x0a, BLK + 0x74, 0xc1)):
+    s.st(0xee80 + p, blk, 2); s.st(0xef80 + p, ef80, 1); s.st(0xf1c0 + p, 0x80, 1); s.st(0xef40 + p, 0x5000, 2)
+    s.st(0xf100 + p, 0xffff, 2); s.st(0xef81 + p, 0x4b, 1); s.st(0xf180 + p, 0x20, 1)
+s.st(BLK + 0x74 + 5, 10, 1); s.st(BLK + 0x74 + 4, 0, 1)
+s.st(0x08, 0x7f, 1); s.st(0x50, 0x20, 2); s.st(0x52, 3, 2); s.st(0x56, BLK, 2); s.st(0x45, 60, 1); s.st(0x46, 100, 1)
+put(s, 'LRESO', 8); put(s, 'LRLOW', 32); put(s, 'LXOR', 0x80)
+s.st(S['LASTSLOT'], 0xff, 1); part_hook(0x06)
+check('Lab Reso High 7 + Low 31: 0x%02x; Ctrl XOR 128 flips bit 7: 0x%02x; type stays synth' % (
+      s.ld(0x0d01 + 6, 1), s.ld(0x0d00 + 6, 1)),
+      s.ld(0x0d01 + 6, 1) == 0xff and s.ld(0x0d00 + 6, 1) == 0xa4 and s.ld(S['TY'] + 6, 1) == 0)
+put(s, 'LPPOS', 0x0f); put(s, 'LPXOR', 0x01)
+s.st(0x56, BLK + 0x74, 2); s.st(S['LASTSLOT'], 0xff, 1); part_hook(0x0a)
+check('Lab PCM Pos XOR 0x0f: 0x%02x; PCM XOR 1: 0x%02x; type PCM' % (s.ld(0x0c41 + 0x0a, 1), s.ld(0x0d00 + 0x0a, 1)),
+      s.ld(0x0c41 + 0x0a, 1) == 0x80 ^ 0x0f and s.ld(0x0d00 + 0x0a, 1) == 0xc0 and s.ld(S['TY'] + 0x0a, 1) == 0x80)
+put(s, 'LPART', 1); s.st(0xef80 + 6, 0x24, 1); s.st(0xef81 + 6, 0x4b, 1)
+s.st(0x56, BLK, 2); s.st(S['LASTSLOT'], 0xff, 1); part_hook(0x06)
+check('Lab Part P1: part 3 untouched (0x%02x 0x%02x)' % (s.ld(0x0d00 + 6, 1), s.ld(0x0d01 + 6, 1)),
+      s.ld(0x0d00 + 6, 1) == 0x24 and s.ld(0x0d01 + 6, 1) == 0x4b)
+
 odd = sorted({'%04x->%04x' % x for t in sims for x in t.odd})
 check('no word access at an odd address %s' % odd, not odd)
 segs = R.build_ic15(lab)[0]
-print('IC15 code %d + %d bytes, IC19 hooks %d bytes' % (len(segs[0][1]), len(segs[1][1]),
+print('IC15 %d + %d bytes, IC19 hooks %d bytes' % (len(segs[0][1]), len(segs[1][1]),
                                                        sum(len(b) for _, b in R.build_ic19()[0])))
 sys.exit(1 if fails else 0)
