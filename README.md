@@ -104,7 +104,7 @@ Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-12
   read back ok), Lab Reso High 7 = much stronger resonance, Lab Ctrl XOR 8 (bit 3) together with Lab Reso High 7 = the note is replaced by a transient wind
   (noise) sound; Ctrl XOR 0 = normal, and every
   XOR value 1-63 gives a different transient (user: "a very cool sound").
-- [ ] Rosetta v9 hardware test: submenus, vintage, chord learn, scale chords, LFO sync, arp groove (chance,
+- [ ] Rosetta v9/v10 hardware test, feature by feature (v9: user says it all looks great and works well): submenus, vintage, chord learn, scale chords, LFO sync, arp groove (chance,
   ratchet, octave jump, accent, Euclid, humanize), Seq (step / live record, transpose), arp MIDI out (needs another
   synth or a MIDI monitor on MIDI OUT), Lab Reso Low / Ctrl XOR 64-255 / PCM XOR / PCM Pos / Lab Part.
 - [ ] OS mod: check that the stock Write/Copy > "Timbre Write" saves Quick-screen/CC edits (they go into the same timbre temp area the stock editor uses; the edited flags only drive the `*` marker). Resonance etc. belong to the timbre, not the patch: write the timbre to an I-slot, point the patch part at it, then Patch Write.
@@ -144,34 +144,36 @@ Details: `IC19_MAP.md` ("Stage 3", "Quick screen"). Code: `patch_ic19.py`, `ic19
 ## Rosetta two-chip mod (IC19 + IC15)
 **v8 on hardware (user test):** boots, the Info line reads `Mem oooo P01 v8` (all RAM spots ok), the Lab items work
 (see Lab). The rest of v8 (arp, unison, glide, LFO, wave seq, saved settings) is not reported yet.
-**v9 is simulator-only.**
+**v9 on hardware:** user: "it all looks great and seems to work well" (no feature-by-feature report yet).
+**v10 (menu layout, banner, Mod / Lab On-Off) is simulator-only.** v10 keeps the v9 settings and sequence.
 v6 plus new features whose code lives in IC15 page 0x27: code at IC15 0x1C000-0x1EFFF (the end of the demo songs,
 unused once the Quick mod has replaced the demo menu), the jump table at 0x1F000 and data after it (0x1F020-0x1FFFF).
 IC19 gets only small hooks. With a stock IC15 the hooks find no magic word and the unit behaves exactly like v6.
-IC19 is the same in v8 and v9 (MD5 `08ebae6e...`): going from v8 to v9 only means reburning IC15.
+IC19 is the same in v8, v9 and v10 (MD5 `08ebae6e...`): later versions only need IC15 reburned.
 - **Rosetta menu:** on the Quick screen press **Edit**. Group +/- = item, Bank +/- = value -/+1, Number +/- = -/+10,
-  Part = current part (P1-P8, also on the Quick screen), Exit = back. Items marked `>` have a **submenu**: Edit opens
-  it, Group +/- moves inside it, Exit (or Edit) goes back. On any other item **Edit = next section**. Settings are
-  kept in battery RAM (survive power-off). Info = memory test of the RAM the mod uses (`o` = ok, `X` = bad), part
-  byte, version.
+  Part = current part (P1-P8, also on the Quick screen), Exit = back. One line per feature; items marked `>` have a
+  **submenu** with all their settings: Edit opens it, Group +/- moves inside it, Exit (or Edit) goes back. Top level:
+  Wave Scan, Wave Seq >, Random >, Vintage >, Glide Time >, Mono Part >, Unison Voices >, Chord >, Mod Matrix >
+  (On / Off), Arp Mode >, Lab > (On / Off), Info. Edit on Wave Scan / Info = next section. Settings are kept in
+  battery RAM (survive power-off). Info = memory test of the RAM the mod uses (`o` = ok, `X` = bad), part byte,
+  version.
   - **Wave:** Wave Scan (CC70, per part, live), Random Wave, **Wave Seq >** (Up 4, Up 8, Down 4, Ping 8, Octo,
     Strobe, Once 4, Random, User; inside: Speed, Part, User 1-8). The sequence steps the PCM wave of each note over
     time (Wavestation style); the pitch follows each wave's tuning.
-  - **Pitch:** Drift Pitch, **Vintage >** (0-99, inside: Vintage Part): every note wanders slowly in pitch (up to
-    about +-28 cents at 99) and cutoff, each note its own way, **Glide Time / Glide Part**, **Mono Part**, **Legato**,
-    Random Cutoff.
+  - **Random >:** Drift Pitch, Random Wave, Random Cutoff (new values for every note).
+  - **Pitch:** **Vintage >** (0-99, inside: Vintage Part): every note wanders slowly in pitch (up to
+    about +-28 cents at 99) and cutoff, each note its own way, **Glide Time > / Glide Part**, **Mono Part > / Legato**.
   - **Voice:** **Unison Voices >** (1-4; inside: Detune, Part), **Chord >** (Octave ... Dim, **Learned**, **Scale**,
     **Scale 7**; inside: Chord Part, **Chord Learn**, **Scale Key**, **Scale Type**). Chord Learn: Bank+, play a
     chord on the Chord Part, let go: the chord is learned (up to 5 notes) and Chord = Learned, one key plays it.
     Scale / Scale 7: one key plays the triad / 7th chord of the key and scale (Major, Minor, Dorian, Phrygian,
     Lydian, Mixolydian, Locrian, harmonic / melodic minor) on that degree.
-  - **Mod matrix:** **Mod1-4 Source >** (ModWheel, AftTouch, Velocity, Key, LFO, S&H, CC16, CC17; inside: Dest
-    Cutoff / Pitch / Wave / Level / Reso, Amount -63..+63), LFO Rate, **LFO Sync** (Off or 4 bars ... 1/16T, on MIDI
+  - **Mod Matrix >** (On / Off; inside: Mod1-4 Source (ModWheel, AftTouch, Velocity, Key, LFO, S&H, CC16, CC17),
+    Dest (Cutoff / Pitch / Wave / Level / Reso), Amount -63..+63, LFO Rate, **LFO Sync** (Off or 4 bars ... 1/16T, on MIDI
     clock or the arp tempo; the S&H steps with it), Mod Part. Velocity -> Wave = velocity layers.
   - **Arp:** **Arp Mode >** (Up, Down, Up+Down, Random, Played, **Seq**; inside: Octaves, Rate 1/4 .. 1/32, Tempo
-    40-240 BPM, Gate, Latch, Part, **Arp MIDI Out** Off / On / Only), **Arp Groove >** (Chance %, Ratchet 2x-4x /
-    Random, Octave Jump %, Accent every 2/3/4 / Random, Euclid Hits / Steps, Humanize Time / Vel), **Arp Seq >**
-    (Seq Record, Seq Length). Syncs to MIDI clock when one is received (start resets the pattern). Arp notes go
+    40-240 BPM, Gate, Latch, Part, **Arp MIDI Out** Off / On / Only, Seq Record, Seq Length, Chance %, Ratchet
+    2x-4x / Random, Octave Jump %, Accent every 2/3/4 / Random, Euclid Hits / Steps, Humanize Time / Vel). Syncs to MIDI clock when one is received (start resets the pattern). Arp notes go
     through mono, chord, unison and glide too.
     - **Seq:** a recorded pattern of up to 32 steps (notes, rests, ties), kept in battery RAM; the last key held
       transposes it (the first recorded note = that key). A demo pattern is there from the start.
@@ -179,7 +181,7 @@ IC19 is the same in v8 and v9 (MD5 `08ebae6e...`): going from v8 to v9 only mean
       first key = Live record (the first key starts the arp clock, keys go to the nearest step, a held key = tie),
       Bank- = stop (the steps so far become the pattern). The display shows `Step 05/32`.
     - **MIDI Out:** arp notes also go out of MIDI OUT on the arp part's channel (Only: not played inside).
-  - **Lab (experiment):** Lab Reso High (bits 5-7 of the LA32 resonance byte that Roland ties to the reso value),
+  - **Lab > (experiment, On / Off):** Lab Reso High (bits 5-7 of the LA32 resonance byte that Roland ties to the reso value),
     Lab Reso Low (bits 0-4, including 0 and 31 that Roland never uses), Lab Ctrl XOR (0-255: flips the control byte
     of synth partials; bit 7 = "PCM"), Lab PCM XOR (control byte of PCM partials), Lab PCM Pos (flips the sample
     position bits: other samples / other memory), Lab Part (All or one part).

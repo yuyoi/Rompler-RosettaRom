@@ -56,7 +56,8 @@ SETTINGS = [(0xf600, 0xf630, [
                 ('ARPPROB', 1, 100), ('RATCH', 1, 0), ('OJUMP', 1, 0), ('ACCENT', 1, 0), ('EUCK', 1, 3),
                 ('EUCN', 1, 0), ('HUMT', 1, 0), ('HUMV', 1, 0), ('ARPOUT', 1, 0), ('VINT', 1, 0), ('VINTP', 1, 0),
                 ('LFOSYNC', 1, 0), ('SCKEY', 1, 0), ('SCTYPE', 1, 0), ('LRLOW', 1, 0), ('LPXOR', 1, 0),
-                ('LPPOS', 1, 0), ('LPART', 1, 0), ('SEQLEN', 1, len(SEQ_DEFAULT)), ('CLRN', 4, [7, 12, 0, 0])]),
+                ('LPPOS', 1, 0), ('LPART', 1, 0), ('SEQLEN', 1, len(SEQ_DEFAULT)), ('CLRN', 4, [7, 12, 0, 0]),
+                ('MODOFF', 1, 0), ('LABOFF', 1, 0)]),          # v10: master switches, 0 = On (v9 RAM has 0 there)
             (0xf650, 0xf670, [
                 ('SEQ', 32, [b + 64 if b < 0x80 else b for b in SEQ_DEFAULT] + [0x80] * (32 - len(SEQ_DEFAULT)))])]
 
@@ -251,6 +252,7 @@ LFO_SYNC = [('Off', 0), ('4 Bars', 384), ('2 Bars', 192), ('1 Bar', 96), ('1/2',
             ('1/8T', 8), ('1/16', 6), ('1/16T', 4)]          # MIDI clocks (24 per beat) per LFO cycle
 LAB_RESO = ['Off'] + [str(i) for i in range(8)]
 OFFON = ['Off', 'On']
+ONOFF = ['On', 'Off']
 REC_MODES = ['Off ', 'Step', 'Live', 'Rec ']
 
 # kinds: 0 number, 1 named list, 2 All/P1-8, 3 per-part number (live), 4 info, 5 Off/P1-8, 6 signed (63 = 0),
@@ -267,20 +269,21 @@ def _items():
         ((name.ljust(15)[:15] + '>') if kind & K_SUBP else name, s, mx, kind, mn, dofs, names))
     S = K_SUB
     add('Wave Scan (CC70)', 'WAVE', 127, 3 | K_SECTION)
-    add('Random Wave', 'RWAVE', 127, 0)
     add('Wave Seq', 'WSPAT', len(WSEQS) - 1, 1 | K_SUBP, names=[n for n, _, _ in WSEQS])
     add('WSeq Speed', 'WSSPD', 99, 0 | S)
     add('WSeq Part', 'WSPART', 8, 2 | S)
     for i in range(8):
         add('WSeq User %d' % (i + 1), ('WSUSER', i), 127, 0 | S)
-    add('Drift Pitch', 'DRIFTP', 31, 0 | K_SECTION)
+    add('Random', 'MIDX', 0, 11 | K_SUBP)
+    add('Drift Pitch', 'DRIFTP', 31, 0 | S)
+    add('Random Wave', 'RWAVE', 127, 0 | S)
+    add('Random Cutoff', 'RCUT', 100, 0 | S)
     add('Vintage', 'VINT', 99, 0 | K_SUBP)
     add('Vintage Part', 'VINTP', 8, 2 | S | K_ALLOFF)
-    add('Glide Time', 'GLTIME', 99, 0 | K_ALLOFF)
-    add('Glide Part', 'GLPART', 8, 2 | K_ALLOFF)
-    add('Mono Part', 'MONOP', 8, 5 | K_ALLOFF)
-    add('Legato', 'LEGATO', 1, 1 | K_ALLOFF, names=OFFON)
-    add('Random Cutoff', 'RCUT', 100, 0)
+    add('Glide Time', 'GLTIME', 99, 0 | K_SECTION | K_SUBP | K_ALLOFF)
+    add('Glide Part', 'GLPART', 8, 2 | S | K_ALLOFF)
+    add('Mono Part', 'MONOP', 8, 5 | K_SUBP | K_ALLOFF)
+    add('Legato', 'LEGATO', 1, 1 | S | K_ALLOFF, names=OFFON)
     add('Unison Voices', 'UNIV', 3, 0 | K_SECTION | K_SUBP | K_ALLOFF, dofs=1)
     add('Unison Detune', 'UNID', 99, 0 | S)
     add('Unison Part', 'UNIP', 8, 2 | S | K_ALLOFF)
@@ -289,14 +292,14 @@ def _items():
     add('Chord Learn', 'MIDX', 0, 10 | S)
     add('Scale Key', 'SCKEY', len(KEYS) - 1, 1 | S | K_ALLOFF, names=KEYS)
     add('Scale Type', 'SCTYPE', len(SCALES) - 1, 1 | S | K_ALLOFF, names=[n for n, _ in SCALES])
+    add('Mod Matrix', 'MODOFF', 1, 1 | K_SECTION | K_SUBP, names=ONOFF)
     for i in range(4):
-        add('Mod%d Source' % (i + 1), ('MS', i), len(MOD_SRC) - 1, 1 | K_SUBP | (K_SECTION if i == 0 else 0),
-            names=MOD_SRC)
+        add('Mod%d Source' % (i + 1), ('MS', i), len(MOD_SRC) - 1, 1 | S, names=MOD_SRC)
         add('Mod%d Dest' % (i + 1), ('MD', i), len(MOD_DST) - 1, 1 | S, names=MOD_DST)
         add('Mod%d Amount' % (i + 1), ('MA', i), 126, 6 | S)
-    add('LFO Rate', 'LFOR', 99, 0)
-    add('LFO Sync', 'LFOSYNC', len(LFO_SYNC) - 1, 1, names=[n for n, _ in LFO_SYNC])
-    add('Mod Part', 'MODP', 8, 2)
+    add('LFO Rate', 'LFOR', 99, 0 | S)
+    add('LFO Sync', 'LFOSYNC', len(LFO_SYNC) - 1, 1 | S, names=[n for n, _ in LFO_SYNC])
+    add('Mod Part', 'MODP', 8, 2 | S)
     add('Arp Mode', 'ARPM', len(ARP_MODES) - 1, 1 | K_SECTION | K_SUBP | K_ALLOFF, names=ARP_MODES)
     add('Arp Octaves', 'ARPOCT', 3, 0 | S, dofs=1)
     add('Arp Rate', 'ARPRATE', len(ARP_RATES) - 1, 1 | S, names=[n for n, _, _ in ARP_RATES])
@@ -305,7 +308,8 @@ def _items():
     add('Arp Latch', 'ARPLATCH', 1, 1 | S | K_ALLOFF, names=OFFON)
     add('Arp Part', 'ARPP', 7, 7 | S | K_ALLOFF)
     add('Arp MIDI Out', 'ARPOUT', len(ARP_OUT) - 1, 1 | S | K_ALLOFF, names=ARP_OUT)
-    add('Arp Groove', 'MIDX', 0, 11 | K_SUBP)
+    add('Seq Record', 'SEQLEN', 0, 9 | S)
+    add('Seq Length', 'SEQLEN', 32, 0 | S, mn=1)
     add('Chance %', 'ARPPROB', 100, 0 | S)
     add('Ratchet', 'RATCH', len(RATCHETS) - 1, 1 | S, names=RATCHETS)
     add('Octave Jump %', 'OJUMP', 100, 0 | S)
@@ -314,15 +318,13 @@ def _items():
     add('Euclid Steps', 'EUCN', 16, 8 | S)
     add('Humanize Time', 'HUMT', 99, 0 | S)
     add('Humanize Vel', 'HUMV', 99, 0 | S)
-    add('Arp Seq', 'MIDX', 0, 11 | K_SUBP)
-    add('Seq Record', 'SEQLEN', 0, 9 | S)
-    add('Seq Length', 'SEQLEN', 32, 0 | S, mn=1)
-    add('Lab Reso High', 'LRESO', len(LAB_RESO) - 1, 1 | K_SECTION, names=LAB_RESO)
-    add('Lab Reso Low', 'LRLOW', 32, 8, dofs=255)
-    add('Lab Ctrl XOR', 'LXOR', 255, 0)
-    add('Lab PCM XOR', 'LPXOR', 255, 0)
-    add('Lab PCM Pos', 'LPPOS', 255, 0)
-    add('Lab Part', 'LPART', 8, 2)
+    add('Lab', 'LABOFF', 1, 1 | K_SECTION | K_SUBP, names=ONOFF)
+    add('Lab Reso High', 'LRESO', len(LAB_RESO) - 1, 1 | S, names=LAB_RESO)
+    add('Lab Reso Low', 'LRLOW', 32, 8 | S, dofs=255)
+    add('Lab Ctrl XOR', 'LXOR', 255, 0 | S)
+    add('Lab PCM XOR', 'LPXOR', 255, 0 | S)
+    add('Lab PCM Pos', 'LPPOS', 255, 0 | S)
+    add('Lab Part', 'LPART', 8, 2 | S)
     add('Info', 'MIDX', 0, 4 | K_SECTION)
     return it
 
@@ -339,7 +341,7 @@ def _tables():
     return lfo, glk, spd
 
 
-def build_ic15(ic19_labels, banner=(' ROSETTA OS  v9 ', ' D-110  + IC15  ')):
+def build_ic15(ic19_labels, banner=(' ROSETTA OS v10 ', ' D-110  by JSW  ')):
     """-> ([(cpu address, bytes), ...], Asm of the main code). Page 0x27: CPU 0x8000 = IC15 0x1C000."""
     syms = dict(MAGIC=MAGIC, S_MAGIC_V=S_MAGIC_V, **RAM, **STOCK, CALL19=ic19_labels['call19'],
                 RD20=ic19_labels['rd20'], NITEMS=len(ITEMS), TX_BYTE=0x1d8d, VOL_A=0xf630, VOL_B=0xf650,
@@ -538,7 +540,11 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v9 ', ' D-110  + IC15  ')):
             clr   MDW
             clr   MDL
             clr   MDR
-            clr   r7a
+            ldb   r70, MODOFF           ; Mod Matrix Off: nothing
+            cmpb  r70, zero
+            je    ms_on
+            ret
+    ms_on:  clr   r7a
     ms_l:   ldbze r70, MS[r7a]
             cmpb  r70, zero
             je    ms_n
@@ -609,6 +615,9 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v9 ', ' D-110  + IC15  ')):
 
     ; mdmask: MDM bit d = some continuous slot has dest d, bit 7 = any continuous slot
     mdmask: clrb  MDM
+            ldb   r70, MODOFF
+            cmpb  r70, zero
+            jne   mm_x
             clr   r7a
     mm_l:   ldb   r70, MS[r7a]
             cmpb  r70, zero
@@ -625,7 +634,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v9 ', ' D-110  + IC15  ')):
     mm_n:   inc   r7a
             cmp   r7a, #4
             jne   mm_l
-            ret
+    mm_x:   ret
 
     ; ===================================================================== waves
     ; waddr: r74 = wave byte, r7d = PCM bank -> r74 = address of its 4-byte IC15 wave table entry (page 0x20)
@@ -676,12 +685,19 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v9 ', ' D-110  + IC15  ')):
             stb   r78, 0x0c41[r54]
             ret
 
+    ; lscope: Z = 1 when Lab is On and part r50 is in Lab Part. Uses r70, r76.
+    lscope: ldb   r70, LABOFF
+            cmpb  r70, zero
+            jne   lb_x
+            ldb   r70, LPART
+            ljmp  scope
+    lb_x:   ret
+
     ; lpos: r78 ^= Lab PCM Pos when part r50 is in the lab scope. Uses r70, r76.
     lpos:   ldb   r70, LPPOS
             cmpb  r70, zero
             je    lp_x
-            ldb   r70, LPART
-            lcall scope
+            lcall lscope
             jne   lp_x
             xorb  r78, LPPOS
     lp_x:   ret
@@ -801,8 +817,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v9 ', ' D-110  + IC15  ')):
             shlb  r71, #3
             andb  r71, #0xe0
             orb   r71, r70
-            ldb   r70, LPART
-            lcall scope
+            lcall lscope
             jne   wr2
             ldb   r70, LRESO
             cmpb  r70, zero
@@ -905,8 +920,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v9 ', ' D-110  + IC15  ')):
             stb   r72, 0x0c41[r54]
             stb   r72, CB[r54]
             stb   r72, LC[r54]
-            ldb   r70, LPART            ; Lab: flip control bits of synth partials
-            lcall scope
+            lcall lscope                ; Lab: flip control bits of synth partials
             jne   pt_r
             ldb   r70, LXOR
             xorb  r70, 0xef80[r54]
@@ -941,8 +955,7 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v9 ', ' D-110  + IC15  ')):
             lcall lpos
             stb   r78, 0xf1c0[r54]
             stb   r78, 0x0c41[r54]
-    pt_lx:  ldb   r70, LPART            ; Lab PCM XOR: control byte of PCM partials
-            lcall scope
+    pt_lx:  lcall lscope                ; Lab PCM XOR: control byte of PCM partials
             jne   pt_lev
             ldb   r70, LPXOR
             cmpb  r70, zero
@@ -2708,8 +2721,8 @@ def build_ic15(ic19_labels, banner=(' ROSETTA OS  v9 ', ' D-110  + IC15  ')):
             lcall hexd
             ld    r70, #0x7620          ; ' v'
             lcall put2
-            ldb   r70, #0x39            ; '9'
-            stb   r70, [r76]
+            ld    r70, #0x3031          ; '10'
+            lcall put2
             sjmp  show
     d_on:   cmpb  r7e, zero             ; number, 0 = Off
             je    d_of
