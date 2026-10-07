@@ -280,6 +280,18 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
 - v3 (built, not yet burned): the Part button (key `0x0A`) steps the current part P1..P8 (`0xF6CD`, the rhythm part is
   skipped). Reason: on hardware some patches kept their old filter, because the patch plays from another part than
   P1. Code `0x5112-0x5125`.
+- v4 (built, not yet burned): **live cutoff and resonance.** At note-on `sub_3615` writes one byte per LA32 partial:
+  - cutoff (`0x17` x16 plus keyfollow/bias, `0x38F4`) -> `0xF1C0[p]` + LA32 `0x0C41[p]`
+  - resonance `(r+1) | ((r+1)<<3 & 0xE0)` (`0x3781`) -> `0xEF81[p]` + LA32 `0x0D01[p]`
+
+  Nothing else writes these, and the envelope interrupt never touches them. **PCM partials use the same two registers
+  for the sample address** (`0x36C7`: from the IC12 PCM table). They are recognised by `0xEF80[p]` bit 7: all 13
+  structures in `d_17dc` set bit 7 exactly on PCM partial bytes, and the synth path (`0x3766`) masks it off.
+  The new routine `live` (`0x3EFA`, in the dead demo-start code) runs after each cutoff/reso step that changed a
+  timbre partial block. With the LA32 interrupt masked (like `sub_30f0`), it walks the part's notes (`0xF285`,
+  `0xF3C0`) and their partials (`0xF440`, `0xEE40`). For each synth partial whose block pointer `0xEE80[p]` matches,
+  it does cutoff `0xF1C0` +/-1 (0..255) or recomputes resonance, and writes the LA32 register. The cutoff delta is
+  exact except at the note-on clamps.
 - Lesson for new code: MCS-96 word registers are byte pairs (`r74` = `r74:r75`), so never mix a word and a byte on
   the same pair.
 - Key `0x19` = **Enter held + Edit** (`sub_1bd1` ORs 0x10 into the key code while SC1 bit 0 = Enter is down). In v1.10

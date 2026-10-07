@@ -15,6 +15,15 @@ for k, vals in start.items():
 for part in range(9): s.st(0xf310 + part * 16, 0xe1e4 + part * 0xf6, 2)
 s.st(0xf6cd, PART, 1); s.st(0xb4, 0x503d, 2); s.st(0xb6, 1, 1)
 val = lambda k: [s.ld(BASE + 0x0e + p * 0x3a + OFF[k], 1) for p in range(4)]
+# live update setup: part 3 holds one note (index 5) with three LA32 partials:
+#   p=0x06: synth, timbre partial block 0     p=0x0a: PCM, block 0 (must stay untouched)     p=0x10: synth, block 1
+for r in range(0x40): s.st(0xee40 + r, 0xff, 1)
+s.st(0xf285 + PART * 16, 5, 1); s.st(0xf3c0 + 5, 0xff, 1); s.st(0xf440 + 5, 0x06, 1)
+s.st(0xee40 + 0x06, 0x0a, 1); s.st(0xee40 + 0x0a, 0x10, 1); s.st(0xee40 + 0x10, 0xff, 1)
+for p_, blk, pcm in ((0x06, 0, 0), (0x0a, 0, 1), (0x10, 1, 0)):
+    s.st(0xee80 + p_, BASE + 0x0e + blk * 0x3a, 2); s.st(0xef80 + p_, 0x80 if pcm else 0x24, 1)
+    s.st(0xf1c0 + p_, 0x80, 1); s.st(0xef81 + p_, 0x55, 1); s.st(0x0c41 + p_, 0x80, 1); s.st(0x0d01 + p_, 0x55, 1)
+s.st(0x08, 0xff, 1)                                                   # int_mask
 s.st(0x70, 0xff, 1); s.call(0x503d)
 fails = 0
 def check(name, ok):
@@ -29,6 +38,16 @@ for key, k, want in [(0x05, 'cut', [51, 100, 1, 100]), (0x0d, 'cut', [50, 99, 0,
     s.st(0x70, key, 1); s.call(0x503d)
     check('key %02x %s %s' % (key, k, val(k)), val(k) == want)
 check('redraw after keys: %r' % lcd[-1], lcd[-1] == 'Cut 049 Res 10P3Atk 020 Rel 060 ')
+# after the key sequence: cutoff +1 -1 -1 on block 0 (50->51->50->49) and block 1 (99->100->99->98); reso +1 -1
+lv = lambda base, p_: s.ld(base + p_, 1)
+check('live cutoff synth p06: 0x%02x' % lv(0x0c41, 0x06), lv(0x0c41, 0x06) == 0x7f and lv(0xf1c0, 0x06) == 0x7f)
+check('live cutoff synth p10: 0x%02x' % lv(0x0c41, 0x10), lv(0x0c41, 0x10) == 0x7f and lv(0xf1c0, 0x10) == 0x7f)
+r = 10 + 1; want = r | (r << 3 & 0xe0)
+check('live reso p06 = 0x%02x (want 0x%02x)' % (lv(0x0d01, 0x06), want), lv(0x0d01, 0x06) == want == lv(0xef81, 0x06))
+r = 29 + 1; want = r | (r << 3 & 0xe0)
+check('live reso p10 = 0x%02x (want 0x%02x)' % (lv(0x0d01, 0x10), want), lv(0x0d01, 0x10) == want == lv(0xef81, 0x10))
+check('PCM partial p0a untouched', (lv(0x0c41, 0x0a), lv(0xf1c0, 0x0a), lv(0x0d01, 0x0a), lv(0xef81, 0x0a)) == (0x80, 0x80, 0x55, 0x55))
+check('int_mask restored', s.ld(0x08, 1) == 0xff)
 for want in (3, 4, 5, 6, 7, 0, 1, 2):
     s.st(0x70, 0x0a, 1); s.call(0x503d)
     if s.ld(0xf6cd, 1) != want: break

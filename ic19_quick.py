@@ -28,6 +28,7 @@ class Asm:
     def ljmp(s, tgt): s.raw('e7'); s.w(0); s.fix.append(('r16', len(s.b) - 2, tgt, s.pc))
     def djnz(s, r, tgt): s.raw('e0%02x00' % r); s.fix.append(('r8', len(s.b) - 1, tgt, s.pc))
     def jbc(s, r, bit, tgt): s.raw('%02x%02x00' % (0x30 + bit, r)); s.fix.append(('r8', len(s.b) - 1, tgt, s.pc))
+    def jbs(s, r, bit, tgt): s.raw('%02x%02x00' % (0x38 + bit, r)); s.fix.append(('r8', len(s.b) - 1, tgt, s.pc))
     def done(s, ext={}):
         lab = dict(ext, **s.lab)
         for k, at, t, nxt in s.fix:
@@ -56,10 +57,12 @@ def build():
     # --- code at 0x503d (dead demo menu code) ---
     C = Asm(0x503d)
     C.L('handler'); C.raw('a1'); C.w(D.lab['menu']); C.raw('78'); C.ljmp(MENU_RUN)       # ld r78,#menu; ljmp 0x53a3
-    for name, off, mx in [('cut', CUT, 100), ('res', RES, 30), ('atk', ATK, 100), ('rel', REL, 100)]:
+    for name, off, mx, kind in [('cut', CUT, 100, 1), ('res', RES, 30, 2), ('atk', ATK, 100, 0), ('rel', REL, 100, 0)]:
         C.L(name + '_up'); C.raw('b10176'); C.sjmp(name)                  # ldb r76,#1
         C.L(name + '_dn'); C.raw('b1ff76')                                 # ldb r76,#0xff
-        C.L(name); C.raw('ad%02x74' % off); C.raw('b1%02x72' % mx); C.sjmp('adj')   # ldbze r74,#off ; ldb r72,#max (not r75: high byte of r74)
+        C.L(name); C.raw('ad%02x74' % off)                                 # ldbze r74,#off
+        C.raw('a1%02x%02x72' % (mx, kind)); C.sjmp('adj')                  # ld r72,#kind<<8|max: r72 = max, r73 = live kind
+        # (max is in r72, not r75: r75 is the high byte of r74)
     C.L('adj')
     C.raw('af01cdf650')        # ldbze r50, 0xf6cd
     C.raw('990850'); C.jcc(0xdb, 'ret')                                    # cmpb r50,#8 ; jc ret (rhythm part: no edit)
@@ -67,14 +70,18 @@ def build():
     C.raw('675110f374')        # add r74, 0xf310[r50]   (timbre temp of this part)
     C.raw('b10477')            # ldb r77,#4  (4 partials)
     C.L('loop')
-    C.raw('b27470')            # ldb r70,[r74]
-    C.raw('747670')            # addb r70,r76
+    C.raw('b27471')            # ldb r71,[r74]          old value
+    C.raw('54767170')          # addb r70,r71,r76
     C.raw('987270'); C.jcc(0xd1, 'ok')                                     # cmpb r70,r72 ; jnh ok
     C.raw('b07270')            # ldb r70,r72   (over max)
     C.jbc(0x76, 7, 'ok')       # delta +1: keep max
     C.raw('1170')              # clrb r70      (delta -1 wrapped below 0)
     C.L('ok')
     C.raw('c67470')            # stb r70,[r74]
+    C.raw('987170'); C.jcc(0xdf, 'next')                                   # cmpb r70,r71 ; je next (clamped: no change)
+    C.raw('987300'); C.jcc(0xdf, 'next')                                   # cmpb zero,r73 ; je next (no live kind)
+    C.lcall('live')
+    C.L('next')
     C.raw('653a0074')          # add r74,#0x3a (next partial)
     C.djnz(0x77, 'loop')
     C.L('ret'); C.raw('f0')
@@ -93,25 +100,68 @@ def build():
         C.raw('a1'); C.w(0xf6ac + pos); C.raw('78')                        # ld r78,#buf+pos
         C.lcall(fn)
     C.L('flush'); C.ljmp(SUB_525B)
-    C.L('part_next')           # Part button: current part 1..8 (rhythm part skipped), wraps
-    C.raw('b301cdf670')        # ldb r70,0xf6cd
-    C.raw('1770')              # incb r70
-    C.raw('990870'); C.jcc(0xd3, 'pn_st')                                # cmpb r70,#8 ; jnc pn_st (r70 < 8)
-    C.raw('1170')              # clrb r70
-    C.L('pn_st'); C.raw('c701cdf670')                                  # stb r70,0xf6cd
-    C.raw('f0')                # ret
-    code = C.done(D.lab)
+
+    # --- X block at 0x3efa (dead demo-start code): Part button and live update ---
+    X = Asm(0x3efa)
+    X.L('part_next')           # Part button: current part 1..8 (rhythm part skipped), wraps
+    X.raw('b301cdf670')        # ldb r70,0xf6cd
+    X.raw('1770')              # incb r70
+    X.raw('990870'); X.jcc(0xd3, 'pn_st')                                # cmpb r70,#8 ; jnc pn_st (r70 < 8)
+    X.raw('1170')              # clrb r70
+    X.L('pn_st'); X.raw('c701cdf670')                                  # stb r70,0xf6cd
+    X.raw('f0')                # ret
+    # live: r74 -> changed byte (cutoff 0x17 or reso 0x18 of a partial block), r76 = +1/-1, r73 = kind, r50 = part*16.
+    # Walks the part's sounding notes and their LA32 partials like sub_30f0, and for each synth partial (0xEF80 bit 7
+    # clear; PCM partials use these registers for the sample address) of this block rewrites the note-on result:
+    #   cutoff: 0xF1C0[p] +/- 1 (0..255) -> LA32 0x0C41[p]
+    #   reso:   (r+1) | ((r+1)<<3 & 0xE0) -> 0xEF81[p], LA32 0x0D01[p]   (same formula as sub_3615 at 0x3781)
+    X.L('live')
+    X.raw('a07478')            # ld r78,r74
+    X.raw('69170078')          # sub r78,#0x17          block start (cutoff)
+    X.jbc(0x73, 1, 'lv_go')
+    X.raw('0578')              # dec r78                (reso byte is one further)
+    X.L('lv_go')
+    X.raw('717f08')            # andb int_mask,#0x7f    (as sub_30f0: no LA32 interrupt while walking)
+    X.raw('af5185f252')        # ldbze r52,0xf285[r50]  first note of the part
+    X.L('nl'); X.raw('99ff52'); X.jcc(0xdf, 'lv_done')                   # cmpb r52,#0xff ; je done
+    X.raw('af5340f454')        # ldbze r54,0xf440[r52]  first partial of the note
+    X.L('pl'); X.raw('99ff54'); X.jcc(0xdf, 'nn')                        # cmpb r54,#0xff ; je next note
+    X.raw('8b5580ee78'); X.jcc(0xd7, 'pn')                               # cmp r78,0xee80[r54] ; jne (other block)
+    X.raw('b35580ef7a'); X.jbs(0x7a, 7, 'pn')                            # ldb r7a,0xef80[r54] ; jbs PCM -> skip
+    X.jbs(0x73, 1, 'reso')
+    X.raw('b355c0f17a')        # ldb r7a,0xf1c0[r54]
+    X.jbs(0x76, 7, 'cdn')
+    X.raw('99ff7a'); X.jcc(0xdf, 'pn')                                   # at 0xff: stay
+    X.raw('177a'); X.sjmp('cwr')                                         # incb r7a
+    X.L('cdn'); X.raw('987a00'); X.jcc(0xdf, 'pn')                       # cmpb zero,r7a? at 0: stay
+    X.raw('157a')              # decb r7a
+    X.L('cwr'); X.raw('c755c0f17a'); X.raw('c755410c7a'); X.sjmp('pn')  # stb 0xf1c0[r54] ; stb LA32 0x0c41[r54]
+    X.L('reso')
+    X.raw('b378187a')          # ldb r7a,0x18[r78]      new resonance
+    X.raw('177a')              # incb r7a
+    X.raw('b07a7b')            # ldb r7b,r7a
+    X.raw('19037b')            # shlb r7b,#3
+    X.raw('71e07b')            # andb r7b,#0xe0
+    X.raw('907b7a')            # orb r7a,r7b
+    X.raw('c75581ef7a'); X.raw('c755010d7a')                             # stb 0xef81[r54] ; stb LA32 0x0d01[r54]
+    X.L('pn'); X.raw('af5540ee54'); X.sjmp('pl')                         # ldbze r54,0xee40[r54]
+    X.L('nn'); X.raw('af53c0f352'); X.sjmp('nl')                         # ldbze r52,0xf3c0[r52]
+    X.L('lv_done'); X.raw('918008')                                      # orb int_mask,#0x80
+    X.raw('f0')                # ret
+    xcode = X.done(dict(D.lab))
+    code = C.done(dict(D.lab, **X.lab))
+    assert X.pc <= 0x3fa2, hex(X.pc)
     assert C.pc <= 0x5138, hex(C.pc)
     data = bytearray(D.done())
     # fill menu pointers
     def put(at, v): data[at - 0x2019:at - 0x2017] = v.to_bytes(2, 'little')
     put(D.lab['menu'], C.lab['draw'])
     for i, (k, t) in enumerate(keys):
-        put(D.lab['menu'] + 2 + 4 * i + 2, t if isinstance(t, int) else C.lab[t])
+        put(D.lab['menu'] + 2 + 4 * i + 2, t if isinstance(t, int) else dict(C.lab, **X.lab)[t])
     assert D.pc <= 0x2080, hex(D.pc)
     # top-menu entry at 0x4fa9: key 19 '>'(bit7) handler, after = ret
     entry = bytes([0x19, 0xbe]) + C.lab['handler'].to_bytes(2, 'little') + RET.to_bytes(2, 'little')
-    return [(0x503d, code), (0x2019, bytes(data)), (0x4fa9, entry),
+    return [(0x503d, code), (0x3efa, xcode), (0x2019, bytes(data)), (0x4fa9, entry),
             (0x5037, D.lab['menu'].to_bytes(2, 'little'))]   # dead demo state 0x5036 now runs this menu too (safety)
 
 
