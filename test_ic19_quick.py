@@ -60,4 +60,30 @@ check('rhythm part untouched', bytes(s.m[0xe1e4:0xe1e4 + 9 * 0xf6]) == before)
 s.st(0xf4e2, 0x7ff0, 2); s.stubs[0x7ff0] = s.stubs[0x5b36] = lambda s: None     # previous screen = stub
 s.st(0xf6cd, PART, 1); s.st(0x70, 0x01, 1); s.call(0x503d)
 check('Exit pops state (rb6 1 -> 0)', s.ld(0xb6, 1) == 0)
+# MIDI CC (patch_ic19.py --cc): call the stock CC dispatch 0x3BBA as the per-part loop does
+if s.ld(0x3bce + 2 * 74, 2):
+    def cc(n, v, part=PART, mask=0xff):
+        s.st(0x08, mask, 1); s.st(0x42, 0x1234, 2); s.st(0x44, 5, 1); s.st(0x45, n, 1); s.st(0x46, v, 1)
+        s.st(0x50, part * 16, 2); s.st(0xc7, 0, 1); s.call(0x3bba)
+        return (s.ld(0x42, 2), s.ld(0x44, 1), s.ld(0x45, 1), s.ld(0x46, 1), s.ld(0x50, 2)) == (0x1234, 5, n, v, part * 16)
+    ok = cc(74, 127)
+    check('CC74 127: cut %s, regs kept' % val('cut'), ok and val('cut') == [100] * 4 and s.ld(0xc7, 1) == 8)
+    check('CC74 live p06 0x%02x p10 0x%02x' % (lv(0xf1c0, 0x06), lv(0xf1c0, 0x10)),
+          lv(0xf1c0, 0x06) == 0x7f + 51 == lv(0x0c41, 0x06) and lv(0xf1c0, 0x10) == 0x7f + 2 == lv(0x0c41, 0x10))
+    cc(74, 0, mask=0x7f)
+    check('CC74 0: cut %s, live p06 0x%02x' % (val('cut'), lv(0x0c41, 0x06)),
+          val('cut') == [0] * 4 and lv(0x0c41, 0x06) == 0x7f + 51 - 100 and lv(0x0c41, 0x10) == 0x7f + 2 - 100)
+    check('CC: int_mask kept when bit 7 was off', s.ld(0x08, 1) == 0x7f)
+    s.st(0xf1c0 + 0x06, 0xf0, 1); cc(74, 127); s.st(0xf1c0 + 0x10, 0x10, 1); cc(74, 0)
+    check('CC74 live clamps 0xff (+100) and 0x00 (-100)', lv(0x0c41, 0x06) == 0xff - 100 and lv(0x0c41, 0x10) == 0)
+    cc(71, 64); r = 15 + 1
+    check('CC71 64: res %s, live 0x%02x' % (val('res'), lv(0x0d01, 0x06)),
+          val('res') == [15] * 4 and lv(0x0d01, 0x06) == r | (r << 3 & 0xe0) == lv(0x0d01, 0x10))
+    cc(73, 127); cc(72, 1)
+    check('CC73 127 atk %s, CC72 1 rel %s' % (val('atk'), val('rel')), val('atk') == [100] * 4 and val('rel') == [1] * 4)
+    check('CC: PCM partial p0a untouched', (lv(0x0c41, 0x0a), lv(0xf1c0, 0x0a), lv(0x0d01, 0x0a)) == (0x80, 0x80, 0x55))
+    before = bytes(s.m[0xe1e4:0xe1e4 + 9 * 0xf6]); cc(74, 77, part=8)
+    check('CC on rhythm part: nothing', bytes(s.m[0xe1e4:0xe1e4 + 9 * 0xf6]) == before)
+    s.st(0x45, 7, 1); s.st(0x46, 100, 1); s.st(0x50, PART * 16, 2); s.call(0x3bba)
+    check('CC7 volume still stock', s.ld(0xf288 + PART * 16, 1) == rom[0x12f1 + 100])
 sys.exit(1 if fails else 0)

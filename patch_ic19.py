@@ -14,6 +14,9 @@ checks the magic word 0x5A1C at 0xB000 (IC15 0x1F000) and calls 0xB002. With an 
 banner instead. The banner's `lcall api_208a` at 0x2272 is pointed at the trampoline.
 --quick replaces the demo with a Quick screen (Enter + Edit): cutoff, resonance, attack, release for all partials
 of the current part. Code and layout in ic19_quick.py.
+--cc (with --quick) adds MIDI CC knobs for the same four, per part on its MIDI channel, live like the Quick screen:
+CC74 cutoff, CC71 resonance, CC73 attack, CC72 release (the usual synth knob numbers), or --cc C,R,A,Rel. Only CC
+numbers the stock OS ignores (control change table 0x3BCE entry 0) can be used.
 No ROM checksum routine was found in v1.10 (the only byte-summing loops are the SysEx checksums at 0x4518 and 0x4c27),
 so nothing has to be fixed up after a patch.
 """
@@ -85,6 +88,8 @@ def main():
     ap.add_argument('--plain-words', action='store_true', help='replace TVA/TVF/WG/P-ENV/... with plain labels')
     ap.add_argument('--ic15-hook', action='store_true', help='banner runs code from IC15 0x1F000 (patch_ic15.py)')
     ap.add_argument('--quick', action='store_true', help='Enter+Edit opens a Quick screen instead of the demo')
+    ap.add_argument('--cc', nargs='?', const='74,71,73,72', metavar='CUT,RES,ATK,REL',
+                    help='MIDI CC knobs for the Quick params (needs --quick; default 74,71,73,72)')
     ap.add_argument('--any-version', action='store_true', help='skip the v1.10 SHA-1 check (addresses may be wrong)')
     a = ap.parse_args()
 
@@ -102,12 +107,21 @@ def main():
         import ic19_quick
         if not ic19_quick.old_ok(rom): sys.exit('quick: menu entry 0x4fa9 / demo handler 0x5036 not as in v1.10')
         if set(rom[0x2019:0x2080]) != {0xff}: sys.exit('quick: 0x2019 is not free')
-        patches += ic19_quick.build()
+        cc = None
+        if a.cc:
+            cc = [int(x) for x in a.cc.split(',')]
+            if len(cc) != 4 or len(set(cc)) != 4 or not all(0 < n < 128 for n in cc): sys.exit('--cc: 4 different CC numbers 1-127')
+            for n in cc:
+                if rom[0x3bce + 2 * n:0x3bd0 + 2 * n] != b'\0\0': sys.exit('--cc: CC%d is already used by the OS' % n)
+            if set(rom[0x1fa9:0x2000]) != {0xff}: sys.exit('--cc: 0x1fa9 is not free')
+        patches += ic19_quick.build(cc)
     if a.boot_banner:
         patches += [(0x226a, b'\xfc'), (0x226c, b'\xdf')]           # cmpb r70,#0xfc ; je 0x2278
     if a.banner_time is not None:
         if not 1 <= a.banner_time <= 255: sys.exit('--banner-time: 1-255')
         patches.append((0x228e, bytes([a.banner_time])))         # ldb r75,#N in the delay at 0x228d
+    if a.cc and not a.quick:
+        sys.exit('--cc needs --quick')
     if not patches:
         sys.exit('nothing to patch (try --banner, --boot-banner, --plain-words, --ic15-hook, --quick)')
     for addr, new in patches:

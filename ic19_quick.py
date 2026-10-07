@@ -39,7 +39,8 @@ class Asm:
             else: s.b[at:at + 2] = (d & 0xffff).to_bytes(2, 'little')
         return bytes(s.b)
 
-def build():
+def build(cc=None):
+    """cc = (cutoff, reso, attack, release) CC numbers, or None for no MIDI CC."""
     SUB_502B, SUB_525B, SUB_527D, SUB_5297, POP_STATE, MENU_RUN, RET = 0x502b, 0x525b, 0x527d, 0x5297, 0x5391, 0x53a3, 0x53e1
     PART = 0xf6cd                       # current part 0-8 (8 = rhythm)
     # param offsets from the timbre start (14 common bytes + partial block offset)
@@ -110,10 +111,11 @@ def build():
     X.raw('1170')              # clrb r70
     X.L('pn_st'); X.raw('c701cdf670')                                  # stb r70,0xf6cd
     X.raw('f0')                # ret
-    # live: r74 -> changed byte (cutoff 0x17 or reso 0x18 of a partial block), r76 = +1/-1, r73 = kind, r50 = part*16.
+    # live: r74 -> changed byte (cutoff 0x17 or reso 0x18 of a partial block), r76 = signed change, r73 = kind,
+    # r50 = part*16. Keeps r42-r50, r72, r74, r77 (the MIDI per-part loop and both callers need them).
     # Walks the part's sounding notes and their LA32 partials like sub_30f0, and for each synth partial (0xEF80 bit 7
     # clear; PCM partials use these registers for the sample address) of this block rewrites the note-on result:
-    #   cutoff: 0xF1C0[p] +/- 1 (0..255) -> LA32 0x0C41[p]
+    #   cutoff: 0xF1C0[p] + change (0..255) -> LA32 0x0C41[p]
     #   reso:   (r+1) | ((r+1)<<3 & 0xE0) -> 0xEF81[p], LA32 0x0D01[p]   (same formula as sub_3615 at 0x3781)
     X.L('live')
     X.raw('a07478')            # ld r78,r74
@@ -121,6 +123,7 @@ def build():
     X.jbc(0x73, 1, 'lv_go')
     X.raw('0578')              # dec r78                (reso byte is one further)
     X.L('lv_go')
+    X.raw('b00870')            # ldb r70,int_mask       (saved: the MIDI path may run with bit 7 already off)
     X.raw('717f08')            # andb int_mask,#0x7f    (as sub_30f0: no LA32 interrupt while walking)
     X.raw('af5185f252')        # ldbze r52,0xf285[r50]  first note of the part
     X.L('nl'); X.raw('99ff52'); X.jcc(0xdf, 'lv_done')                   # cmpb r52,#0xff ; je done
@@ -130,11 +133,12 @@ def build():
     X.raw('b35580ef7a'); X.jbs(0x7a, 7, 'pn')                            # ldb r7a,0xef80[r54] ; jbs PCM -> skip
     X.jbs(0x73, 1, 'reso')
     X.raw('b355c0f17a')        # ldb r7a,0xf1c0[r54]
-    X.jbs(0x76, 7, 'cdn')
-    X.raw('99ff7a'); X.jcc(0xdf, 'pn')                                   # at 0xff: stay
-    X.raw('177a'); X.sjmp('cwr')                                         # incb r7a
-    X.L('cdn'); X.raw('987a00'); X.jcc(0xdf, 'pn')                       # cmpb zero,r7a? at 0: stay
-    X.raw('157a')              # decb r7a
+    X.raw('74767a')            # addb r7a,r76          (r76 = signed step; 1 param step = 1 cutoff step, 0x38F4)
+    X.jbs(0x76, 7, 'cdn')      # (jbs keeps the flags)
+    X.jcc(0xd3, 'cwr')         # up: jnc -> no overflow
+    X.raw('b1ff7a'); X.sjmp('cwr')                                       # clamp 0xff
+    X.L('cdn'); X.jcc(0xdb, 'cwr')                                       # down: jc -> no borrow
+    X.raw('117a')              # clrb r7a               clamp 0
     X.L('cwr'); X.raw('c755c0f17a'); X.raw('c755410c7a'); X.sjmp('pn')  # stb 0xf1c0[r54] ; stb LA32 0x0c41[r54]
     X.L('reso')
     X.raw('b378187a')          # ldb r7a,0x18[r78]      new resonance
@@ -150,8 +154,46 @@ def build():
     X.raw('c755010d7a')        # stb r7a,0x0d01[r54]
     X.L('pn'); X.raw('af5540ee54'); X.sjmp('pl')                         # ldbze r54,0xee40[r54]
     X.L('nn'); X.raw('af53c0f352'); X.sjmp('nl')                         # ldbze r52,0xf3c0[r52]
-    X.L('lv_done'); X.raw('918008')                                      # orb int_mask,#0x80
+    X.L('lv_done'); X.raw('b07008')                                      # ldb int_mask,r70
     X.raw('f0')                # ret
+    out = []
+    if cc:
+        # MIDI CC: the control change table 0x3BCE (128 words, 0 = ignored) gets 4 more entries. The dispatcher calls the
+        # entry once per part on that channel with r45 = CC number, r46 = value 0-127, r50 = part*16 and needs r42-r50
+        # kept. value -> 0..max rounded, written to all 4 partials; changed cutoff/reso goes through live.
+        K = Asm(0x1fa9)
+        K.L('cc')
+        K.raw('89800050'); K.jcc(0xdb, 'cc_ret')                          # cmp r50,#0x80 ; jc (rhythm part: no edit)
+        K.raw('b108c7')            # ldb rc7,#8            MIDI LED, as the stock CC handlers
+        K.raw('5c724670')          # mulub r70,r46,r72     value * max
+        K.raw('653f0070')          # add r70,#63
+        K.raw('9d7f70')            # divub r70,#127        r70 = 0..max
+        K.raw('b07072')            # ldb r72,r70           (r73 = live kind stays)
+        K.raw('675110f374')        # add r74,0xf310[r50]   timbre temp of this part
+        K.raw('b10477')            # ldb r77,#4
+        K.L('ccl')
+        K.raw('b27471')            # ldb r71,[r74]         old
+        K.raw('c67472')            # stb r72,[r74]
+        K.raw('58717276'); K.jcc(0xdf, 'ccn')                             # subb r76,r72,r71 ; je (no change)
+        K.raw('987300'); K.jcc(0xdf, 'ccn')                               # cmpb zero,r73 ; je (no live kind)
+        K.lcall('live')
+        K.L('ccn')
+        K.raw('653a0074')          # add r74,#0x3a
+        K.djnz(0x77, 'ccl')
+        K.L('cc_ret'); K.raw('f0')
+        K2 = Asm(0x2066)           # the rest of the FF area after the menu data
+        for i, (name, off, mx, kind) in enumerate([('cut', CUT, 100, 1), ('res', RES, 30, 2),
+                                                   ('atk', ATK, 100, 0), ('rel', REL, 100, 0)]):
+            A = K if i < 2 else K2
+            A.L('cc_' + name)
+            A.raw('a1%02x%02x72' % (mx, kind))                             # ld r72,#kind<<8|max
+            A.raw('ad%02x74' % off)                                        # ldbze r74,#off
+            A.sjmp('cc')
+        lab = dict(X.lab, **K.lab, **K2.lab)
+        out += [(0x1fa9, K.done(lab)), (0x2066, K2.done(lab))]
+        assert K.pc <= 0x2000 and K2.pc <= 0x2080, (hex(K.pc), hex(K2.pc))
+        for n, name in zip(cc, ('cut', 'res', 'atk', 'rel')):
+            out.append((0x3bce + 2 * n, lab['cc_' + name].to_bytes(2, 'little')))
     xcode = X.done(dict(D.lab))
     code = C.done(dict(D.lab, **X.lab))
     assert X.pc <= 0x3fa2, hex(X.pc)
@@ -166,7 +208,7 @@ def build():
     # top-menu entry at 0x4fa9: key 19 '>'(bit7) handler, after = ret
     entry = bytes([0x19, 0xbe]) + C.lab['handler'].to_bytes(2, 'little') + RET.to_bytes(2, 'little')
     return [(0x503d, code), (0x3efa, xcode), (0x2019, bytes(data)), (0x4fa9, entry),
-            (0x5037, D.lab['menu'].to_bytes(2, 'little'))]   # dead demo state 0x5036 now runs this menu too (safety)
+            (0x5037, D.lab['menu'].to_bytes(2, 'little'))] + out   # dead demo state 0x5036 now runs this menu too
 
 
 OLD_SHA1 = 'cf84018246e2fac022720d6efdce7bdf42efcd47'   # SHA-1 of v1.10 bytes 0x4fa9-0x4fae + 0x5036-0x503c (the menu entry and demo handler)

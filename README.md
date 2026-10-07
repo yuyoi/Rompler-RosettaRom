@@ -104,6 +104,9 @@ Works on a real D-110 (OS v1.10). It only changes IC19, the socketed OS EPROM, a
   Bank +/- = resonance, Number +/- = attack, Part +/- = release. Each step moves all 4 partials of the current part.
   Part (plain button) = next part P1..P8. Exit = back. Cutoff and resonance change held notes live; attack/release
   apply from the next note. Cutoff/resonance only affect synth partials (SQU/SAW), not PCM.
+- **MIDI CC knobs** (`--cc`, not yet tested on hardware): CC74 cutoff, CC71 resonance, CC73 attack, CC72 release,
+  per part on its MIDI channel. Cutoff/resonance move held notes live, like the Quick screen. Other numbers:
+  `--cc 74,71,73,72` order cutoff,reso,attack,release (only CCs the stock OS ignores).
 - **Plain words:** WG/P-ENV/P-LFO/TVF/TVA... become OS/Pitch/Vibr./Flt/Amp...
 - **Boot banner:** your own 2 x 16 characters at power-on.
 
@@ -114,7 +117,7 @@ Please don't share the patched .bin: share this repo instead.
    as `ctrl/ic19.bin`. Keep the original chip.
 2. Patch it (the tool refuses anything that is not the v1.10 dump, SHA-1 `28635510...`):
    ```
-   python patch_ic19.py ctrl/ic19.bin -o ctrl/ic19_mod.bin --quick --plain-words --boot-banner --banner-time 15 --banner " D-110  ROSETTA " "  your text     "
+   python patch_ic19.py ctrl/ic19.bin -o ctrl/ic19_mod.bin --quick --cc --plain-words --boot-banner --banner-time 15 --banner " D-110  ROSETTA " "  your text     "
    ```
    Any option can be left out. `python test_ic19_quick.py ctrl/ic19_mod.bin` runs the Quick screen in a simulator
    first.

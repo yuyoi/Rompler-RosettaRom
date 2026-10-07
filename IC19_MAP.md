@@ -298,6 +298,13 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   (resonance changes held notes, the voice keeps playing). Cutoff writes
   `0x0C41` alone; its partner `0x0C40` (written at `0x38AB`, no RAM shadow) may get a stale byte the same way. That has
   not been heard on hardware, but watch for pulse-width/tone changes when sweeping cutoff.
+- v6 (built, not yet burned): **MIDI CC knobs** (`patch_ic19.py --cc`). The control change table `0x3BCE` gets
+  entries for CC74/71/73/72 (stock: 0 = ignored). The dispatcher (`0x2317`/`0x23B3`) calls them once per part on that
+  channel with `r45` = CC, `r46` = value, `r50` = part*16, and needs `r42`, `r44-r46`, `r50` kept. The handler
+  (`0x1FA9`, stubs also at `0x2066`) sets the value `(v*max+63)/127` in all 4 partials and calls `live` with the
+  signed change; `live` now adds any change to `0xF1C0` (clamped 0..255; one param step = one cutoff step, `0x38F4`
+  adds `param*16` before `>>4`) and saves/restores `int_mask` instead of setting bit 7. The rhythm part is skipped.
+  Sets `rc7` = 8 (MIDI LED) like the stock handlers. The Quick screen does not redraw on a CC (next key does).
 - Lesson for new code: MCS-96 word registers are byte pairs (`r74` = `r74:r75`), so never mix a word and a byte on
   the same pair.
 - Key `0x19` = **Enter held + Edit** (`sub_1bd1` ORs 0x10 into the key code while SC1 bit 0 = Enter is down). In v1.10
