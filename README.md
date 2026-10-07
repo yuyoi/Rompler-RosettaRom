@@ -99,6 +99,12 @@ Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-12
 - [ ] PN-D10-01 ROM card shows "No Data" in the modded unit: test the card in a GR-50.
 - [ ] Length codes 4-7 (samples longer than 0.51 s without the stretch trick) untested.
 - [ ] Rebuild `dist/Rosetta ROM D110.exe` (current exe is v0.1).
+- [ ] Rosetta v8: hardware test (Info line, menu, saved settings, chord/unison/mono/glide, arp tempo vs metronome and
+  MIDI clock, LFO -> cutoff, wave seq mid-note, lab bits). Nothing in v8 is hardware-confirmed yet.
+- [ ] Rosetta v9 (after the v8 test): submenus (Edit on Wave Seq / Mod1-4 / Arp Mode opens it, Exit back), smarter arp
+  (probability, ratchets, octave jumps, accents), chord learn, scale chords, vintage drift, tempo-synced LFO / S&H,
+  Euclidean gate, humanize, arp record (Seq mode, step + live record, key transpose, one 32-step pattern in battery RAM).
+- [ ] After v9 is tried on hardware: arp notes to MIDI OUT (find the stock serial transmit routine used for SysEx dumps).
 - [ ] OS mod: check that the stock Write/Copy > "Timbre Write" saves Quick-screen/CC edits (they go into the same timbre temp area the stock editor uses; the edited flags only drive the `*` marker). Resonance etc. belong to the timbre, not the patch: write the timbre to an I-slot, point the patch part at it, then Patch Write.
 
 ## D-110 OS mod v6: one EPROM swap (IC19 only)
