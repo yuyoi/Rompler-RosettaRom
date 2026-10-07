@@ -238,3 +238,17 @@ untraced: `0x65B0-0x662D`, `0x7469-0x7489`.
   slice of `sub_3615` and write the LA32 register. Code space is the limit (~300 bytes free in `0x1000-0x7FFF`; the test
   mode in bank page 0, `0x8A00-0x8FFF`, could be given up for ~1.5 KB more).
 
+## What can be cut (2026-10-07, sizes approximate)
+- **Demo song player.** Entered from the top menu by internal key `0x19` (`0x4FA9` `=` `sub_5036`, then menu `0x5077`
+  with "Chain of Songs"/"Random Select"; Enter at `0x50D8` sets `0xF6E6` to `0x81`/`0x82` and starts at `0x3EFA`).
+  Song bytes are read through `sub_3fa2` from the bank window (`raa`/`rac`, IC12 pages `0x20+`). The end check is page `0x26`
+  `0x93E7`. IC19 code: sequencer loop `0x2371-0x241A` (~170 B, inside the main loop: unhook with care), start
+  `0x3EFA-0x401B` incl. the part-channel table `0x3FD4` (~290 B), menu `0x5036-0x5130` (~250 B), `sub_7f8b`/`sub_7fb2`
+  (~70 B), plus the window strings. About 0.8 KB in total.
+- **Demo song data in IC12/IC15**: `0xB000-0x1EBFF`, about 82 KB (see IC12_MAP.md), plus 4 KB FF fill at `0x1F000`. That is
+  the big win. The CPU reaches IC12 through the bank window (page `0x20 + n`, 16 KB each at `0x8000-0xBFFF`) and can run
+  code from there. IC15 is already reflashed for the sample mod, so new code and tables can live there. IC19 then
+  only needs small hooks.
+- **Factory test mode** in IC19 bank page 0 (`0x8A00-0x8FFF`, ~1.5 KB): reached by the `0xFC` power-on combo. Useful
+  for service, so keep it unless the space is needed.
+
