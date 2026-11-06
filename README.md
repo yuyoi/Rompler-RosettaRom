@@ -1,15 +1,15 @@
 <p align="center"><img src="assets/logo.png" width="360" alt="Rosetta ROM"></p>
 
-# Rosetta ROM: Roland D-110 sampler mod (custom wave ROMs)
+# Rosetta ROM: Roland D-110 custom samples mod (load your own sounds into the wave ROMs)
 
 **Roland D-110 mod: load your own samples.** The PCM mask ROMs are swapped for flash, so the D-110 plays your
-recordings. The new OS features (arp, sequencer, MIDI CC, wave sequencing) are in
+recordings: a sampler-style instrument where you record on your PC, burn, and play. The D-110 itself doesn't record. The new OS features (arp, sequencer, MIDI CC, wave sequencing) are in
 [D-110 Rosetta OS](https://github.com/yuyoi/D110-rosetta-OS-v11).
 
 > **Works on real hardware.** Custom samples play on a real Roland D-110 from SST39SF040 flash chips in IC7, IC8 and
 > IC15. See [Status](#status-working-prototype-2026-10-06) for the setup and the wiring lessons.
 
-Goal: make any rompler a sampler by replacing its PCM mask ROMs with flash chips (e.g. SST39SF040) programmed by an
+Goal: give any rompler your own samples by replacing its PCM mask ROMs with flash chips (e.g. SST39SF040) programmed by an
 ESP32, so your own samples play where the factory waves were. First target: **Roland D-110** (LA synthesis).
 
 This is the next step after [U110 RomHex Studio](https://github.com/yuyoi/u110-romhex-studio) and the
