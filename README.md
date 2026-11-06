@@ -1,6 +1,10 @@
 <p align="center"><img src="assets/logo.png" width="360" alt="Rosetta ROM"></p>
 
-# Rosetta ROM
+# Rosetta ROM: Roland D-110 sampler mod (custom wave ROMs)
+
+**Roland D-110 mod: load your own samples.** The PCM mask ROMs are swapped for flash, so the D-110 plays your
+recordings. The new OS features (arp, sequencer, MIDI CC, wave sequencing) are in
+[D-110 Rosetta OS](https://github.com/yuyoi/D110-rosetta-OS-v11).
 
 > **Works on real hardware.** Custom samples play on a real Roland D-110 from SST39SF040 flash chips in IC7, IC8 and
 > IC15. See [Status](#status-working-prototype-2026-10-06) for the setup and the wiring lessons.
@@ -17,6 +21,10 @@ This is the next step after [U110 RomHex Studio](https://github.com/yuyoi/u110-r
   ROM -> audio -> ROM is bit-exact on the dumps used here. Decoded audio was checked by ear.
 - **Read the sample table + names** from the control ROM (IC12): 4-byte entries `{pos, len/loop, pitch}`, wave names
   8 ASCII chars at `0x100 + 8*index`. Wave space is 1 MB: IC8 first, then IC7.
+
+> **Chip names.** The dump files and most of the code call the 128 KB tone ROM `ic12`, following the romset naming.
+> On the actual board it is **IC15** (LH5310-DJ); board IC12 is a TC74HC27P logic chip. Everything here means
+> IC15 when it says IC12, unless it is explicitly talking about the dump filename or the manifest key.
 - **Swap a wave** with a WAV (same slot position and length, no table edits) and **rename** it.
 - **Rosetta ROM Studio** (`rosetta_studio.pyw`): U110-Studio-style GUI. Wave list, waveform (original vs replacement),
   load WAV, rename, save/open projects, import ROM dumps, import a folder of WAVs, export all originals, BUILD patched images.
@@ -24,8 +32,18 @@ This is the next step after [U110 RomHex Studio](https://github.com/yuyoi/u110-r
 ## Open questions
 
 - The pitch field of the table entries (tuning of a swapped wave is a guess; drums are fine, pitched waves may be off).
-- Table entries beyond the first 128 (`0xB00+` block), timbre names (10 chars from `0x1200`), what IC6 (32 KB) holds.
+- Table entries beyond the first 128 (`0xB00+` block) and timbre names (10 chars from `0x1200`).
 - The log-to-linear scale is matched to munt's description. Banks built with it play correctly on a D-110.
+
+### Known limitation: what "decode check 1.0000" does and does not prove
+Every `decode check` in a build report is a **Pearson correlation** between the decoded ROM samples and the
+WAV you supplied. Pearson is invariant under a constant offset, and this codec has no exact zero:
+`log_to_lin(0) == 1.0`. So every wipe, every pad and every parked ("freed") wave is written as a constant
+`+1.0` rather than true digital silence — inaudible (about 0.0015% of full scale, and 1.09% of the samples in a
+stock IC8 are already exactly log-0, which decodes to that same value), but **structurally invisible to the
+number**. A 1.0000 correlation therefore does not prove bit-exactness; only `test_codec.py`'s ROM -> audio ->
+ROM byte comparison does. Build reports now print the mean bias next to the correlation
+(`decode check 1.0000, bias +0.2153`) so the strength is visible rather than implied.
 
 ## Use
 
@@ -58,6 +76,7 @@ plus `report.txt`. Images are in chip byte order, as dumped. Renaming needs IC12
 | `CONTEXT.md` | working notes, findings and open questions |
 | `mcs96_dis.py`, `test_mcs96_dis.py`, `mame_ref/` | MCS-96 disassembler + flow tracer for the D-110 OS ROM (IC19); test against MAME's disassembler |
 | `IC12_MAP.md`, `IC19_MAP.md` | control ROM and OS ROM structure maps |
+| `IC6_MAP.md` | the BOSS reverb chip's program ROM: what it is, and why it is not a Rosetta target |
 | `patch_ic19.py` | patches your own IC19 dump (v1.10): `--banner` sets the version screen text, `--boot-banner` shows it at every power-on, `--plain-words` swaps TVA/TVF/WG... for plain labels |
 | `ic19_quick.py` | Quick screen (Enter + Edit): cutoff/reso/attack/release for all partials, used by `patch_ic19.py --quick` |
 | `mcs96_sim.py`, `test_ic19_quick.py` | small MCS-96 simulator (no I/O); runs the Quick screen on your patched dump |
@@ -87,16 +106,71 @@ Record-your-own workflow:
    sounds like, stretches long takes into small slots (S=2/4 with the pitch field lowered), writes IC8/IC7/IC15 burn files + `key.txt`.
 3. Burn IC15, IC8, IC7 (`minipro -p SST39SF040 -w file`, verify by read-back), RAM-reset the D-110 so the new names load.
 Needs your own ROM dumps (not included). Known limits: slots are 0.06-0.5 s so long takes are stretched (8 kHz bandwidth at S=4);
-length codes 4-7 untested; PN-D10-01 card shows "No Data" in the modded unit (cause unknown).
+length codes 5-7 untested on hardware (see below); PN-D10-01 card shows "No Data" in the modded unit (cause unknown).
+
+## Length codes: what is proven and what is not
+
+A PCM table entry's length byte carries a 3-bit code `e`; the slot is `0x800 << e` samples at 32 kHz.
+
+| e | slot | stock waves using it | verified |
+|---|---|---|---|
+| 0 | 0.064 s | 80 | yes, on hardware |
+| 1 | 0.128 s | 80 | yes, on hardware |
+| 2 | 0.256 s | 63 | yes, on hardware |
+| 3 | 0.512 s | 27 | yes, on hardware |
+| 4 | 1.024 s | 6 (bank-2 entries 222-227, looped) | stock precedent, never exercised by Rosetta |
+| 5 | 2.048 s | 0 | **software only** |
+| 6 | 4.096 s | 0 | **software only** |
+| 7 | 8.192 s | 0 | **software only** |
+
+`test_repack.py` proves that all eight codes allocate a legal, block-aligned slot and leave every table entry
+in range; it does **not** prove the LA32 plays them. Nothing in v13 claims e=5..7 works on hardware until the
+test below has been run once. A WAV longer than its slot is not silently padded: the Studio grows the slot when
+it can, and when it cannot (e=7 is the ceiling) the `.rpatch` manifest records `truncation` and the injector
+prints a warning naming the dropped seconds.
+
+**Hardware procedure (once, ~20 min).** Burning a bank that uses e=5..7 risks nothing outside that bank - the
+table entry is data, so a wrong guess sounds wrong but cannot brick the unit. Still, read every chip first and
+verify MD5 on read-back as always.
+1. Record or find one clean 2-4 s sample and one 4-8 s sample (mono, 32 kHz after import).
+2. Load each into the Studio with every other wave's space freed, so the slot grows instead of the wave being cut.
+   The build report prints the slot length in seconds - confirm it says `2.05 s` / `4.10 s` / `8.19 s`, not the shorter number.
+3. Export `.rpatch`, inject it with `rosetta_inject.py` (the same way you would for any pack), burn IC15/IC8/IC7, RAM-reset.
+4. Play the wave at its root key and then a few semitones up and down. Expect: plays from the right note, no click,
+   no wrap-around into the neighbouring wave, and the full length plays before the note ends (or loops if looped).
+5. Record the outcome here in the README. If e=5..7 work, delete the "software only" marks above and the open TODO.
 
 Demo: `demo/d110_recorded_bank_all_waves.m4a` is a real D-110 playing waves 1-128 of the recorded bank in order, loops at the end.
 
+## Building the exe
+`build_exe.bat`, run from this folder. It needs Python 3.10 with `pyinstaller` and `numpy`:
+
+    py -3.10 -m pip install -r requirements-exe.txt pyinstaller
+    build_exe.bat
+
+The build is reproducible: `rosetta_studio.spec` is committed, uses only relative paths (the old one hardcoded
+`C:/Users/JUNKSMITHWIZARD/...` for the icon), and reads from a `--clean` work tree in `build_tmp/`. Output is
+`dist/Rosetta ROM D110 v0.4.exe` — the name comes from `VERSION` in the spec, and the script **refuses to
+overwrite**: bump `VERSION` for each build so an old known-good exe is always still on disk. `rosetta_inject.py`
+is copied next to the exe rather than bundled into it; it is standard-library only, and the person running it
+against their own ROM dumps should be able to read it.
+
+Smoke test after every build: launch the exe from an empty folder. It must open to an empty wave list and say
+so, not exit.
+
+Dependencies are split: `requirements-exe.txt` is the whole Studio runtime (numpy, windnd); the generators,
+recorder and audition tools need more (`requirements-generators.txt`: scipy, soundfile, sounddevice, mido,
+pillow). `requirements.txt` is both.
+
 ## TODO
-- [ ] **Patch workflow (no Roland data in the repo):** pack builder writes a `.rpatch` (new wave audio, PCM-table entries, names only); a small separate injector script applies it to the user's OWN IC15/IC7/IC8 dumps, checks the dump revision (MD5), tiles IC15 4x for the SST39SF040 and writes the three burn files. Studio gets File > "Apply Noise Pack" calling the injector; the program must still launch and work with no dumps loaded.
+- [x] **Patch workflow (no Roland data in the repo):** done in v13 — the Studio writes `.rpatch` packs
+  (File > Export .rpatch pack), `rosetta_inject.py` applies one to the user's OWN IC15/IC7/IC8 dumps, gates on
+  the revision, tiles IC15 4x for the SST39SF040 and writes the three burn files. `test_rpatch.py` proves a
+  pack + inject is byte-identical to a direct build.
 - [ ] Built-in noise pack preset (pink/white noise, buzz loops, noise drums; from `gen_glitch_bank.py`) as one of those patches.
 - [ ] PN-D10-01 ROM card shows "No Data" in the modded unit: test the card in a GR-50.
-- [ ] Length codes 4-7 (samples longer than 0.51 s without the stretch trick) untested.
-- [ ] Rebuild `dist/Rosetta ROM D110.exe` (current exe is v0.1).
+- [ ] Length codes 5-7 (samples longer than 1.02 s without the stretch trick) verified in software, untested on hardware. Procedure above.
+- [x] Reproducible exe build (`build_exe.bat` + committed spec). Current build: `dist/Rosetta ROM D110 v0.4.exe`.
 - [ ] OS mod: check that the stock Write/Copy > "Timbre Write" saves Quick-screen/CC edits (they go into the same timbre temp area the stock editor uses; the edited flags only drive the `*` marker). Resonance etc. belong to the timbre, not the patch: write the timbre to an I-slot, point the patch part at it, then Patch Write.
 
 ## D-110 OS mod v6: one EPROM swap (IC19 only)
