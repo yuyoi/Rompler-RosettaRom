@@ -2,7 +2,7 @@
 
 # Rosetta ROM: Roland D-110 custom samples mod (load your own sounds into the wave ROMs)
 
-**Roland D-110 mod: load your own samples.** The PCM mask ROMs are swapped for flash, so the D-110 plays your
+**Roland D-110 (D110) mod: load your own samples.** The PCM mask ROMs are swapped for flash, so the D-110 plays your
 recordings: a sampler-style instrument where you record on your PC, burn, and play. The D-110 itself doesn't record. The new OS features (arp, sequencer, MIDI CC, wave sequencing) are in
 [D-110 Rosetta OS](https://github.com/yuyoi/D110-rosetta-OS-v11).
 
